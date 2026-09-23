@@ -1,0 +1,389 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------
+   Design tokens
+
+   An original palette: deep space navy, ember red, ion blue, arc purple.
+   No Marvel trade dress, logos or artwork is used anywhere in this project.
+   ------------------------------------------------------------------ */
+@theme {
+  --color-void: #04050e;
+  --color-void-2: #090b1a;
+  --color-void-3: #10132a;
+  --color-ember: #ff3b4a;
+  --color-ember-soft: #ff7a84;
+  --color-ion: #3ea6ff;
+  --color-ion-soft: #8fd0ff;
+  --color-arc: #a855f7;
+  --color-arc-soft: #cfa5ff;
+  --color-gold: #f5c542;
+  --color-mist: #aab3d4;
+
+  --font-display: var(--font-display), 'Segoe UI', system-ui, sans-serif;
+  --font-sans: var(--font-sans), 'Segoe UI', system-ui, sans-serif;
+
+  --radius-panel: 1.25rem;
+}
+
+/* ------------------------------------------------------------------
+   Base
+   ------------------------------------------------------------------ */
+@layer base {
+  * {
+    min-width: 0;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-void);
+    color: #eef1ff;
+    font-family: var(--font-sans);
+    /* Keeps the starfield from banding on wide screens. */
+    background-image:
+      radial-gradient(ellipse 80% 55% at 50% -10%, rgba(62, 166, 255, 0.18), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 85% 15%, rgba(168, 85, 247, 0.16), transparent 62%),
+      radial-gradient(ellipse 65% 45% at 10% 80%, rgba(255, 59, 74, 0.13), transparent 60%);
+    background-attachment: fixed;
+    min-height: 100dvh;
+  }
+
+  /* Visible, high-contrast focus for keyboard users everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--color-ion-soft);
+    outline-offset: 3px;
+    border-radius: 0.5rem;
+  }
+
+  ::selection {
+    background: rgba(62, 166, 255, 0.35);
+  }
+}
+
+/* ------------------------------------------------------------------
+   Starfield
+
+   Two layers of box-shadow "stars" with a very slow drift. Purely
+   decorative, hidden from assistive tech, and frozen when the visitor
+   prefers reduced motion.
+   ------------------------------------------------------------------ */
+.starfield {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.starfield::before,
+.starfield::after {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  background-repeat: repeat;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1px 1px at 70% 12%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1.5px 1.5px at 45% 72%, rgba(143, 208, 255, 0.75), transparent),
+    radial-gradient(1px 1px at 88% 55%, rgba(255, 255, 255, 0.55), transparent),
+    radial-gradient(1px 1px at 12% 85%, rgba(207, 165, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 60% 90%, rgba(255, 255, 255, 0.5), transparent);
+  background-size: 340px 340px;
+  animation: drift 160s linear infinite;
+}
+
+.starfield::after {
+  background-size: 190px 190px;
+  opacity: 0.55;
+  animation-duration: 240s;
+  animation-direction: reverse;
+}
+
+@keyframes drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-340px, -340px, 0);
+  }
+}
+
+/* ------------------------------------------------------------------
+   Components
+   ------------------------------------------------------------------ */
+@layer components {
+  .panel {
+    border-radius: var(--radius-panel);
+    border: 1px solid rgba(143, 208, 255, 0.16);
+    background:
+      linear-gradient(160deg, rgba(16, 19, 42, 0.92), rgba(9, 11, 26, 0.94));
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 24px 60px -30px rgba(0, 0, 0, 0.9);
+    backdrop-filter: blur(10px);
+  }
+
+  .panel-glow {
+    position: relative;
+  }
+
+  .panel-glow::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 59, 74, 0.6),
+      rgba(62, 166, 255, 0.5),
+      rgba(168, 85, 247, 0.6)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .display {
+    font-family: var(--font-display);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .text-glow-ember {
+    text-shadow: 0 0 24px rgba(255, 59, 74, 0.55);
+  }
+
+  .text-glow-ion {
+    text-shadow: 0 0 24px rgba(62, 166, 255, 0.5);
+  }
+
+  /* Base button: everything below layers colour on top of this. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    /* Comfortably above the 44px minimum tap target on phones. */
+    min-height: 3rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition:
+      transform 140ms ease,
+      box-shadow 200ms ease,
+      background-color 200ms ease,
+      border-color 200ms ease;
+    cursor: pointer;
+  }
+
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    transform: none;
+  }
+
+  .btn-primary {
+    color: #fff;
+    background: linear-gradient(135deg, var(--color-ember), #d42440);
+    box-shadow: 0 10px 34px -12px rgba(255, 59, 74, 0.9);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 16px 42px -12px rgba(255, 59, 74, 1);
+  }
+
+  .btn-ghost {
+    color: #dce4ff;
+    border: 1px solid rgba(143, 208, 255, 0.3);
+    background: rgba(16, 19, 42, 0.6);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    border-color: rgba(143, 208, 255, 0.6);
+    background: rgba(22, 27, 56, 0.85);
+  }
+
+  /* Answer buttons: large hit area, clear selected state, no hint of
+     correctness — that is only revealed after the whole exam. */
+  .answer {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    width: 100%;
+    text-align: left;
+    padding: 1rem 1.125rem;
+    border-radius: 1rem;
+    border: 1px solid rgba(143, 208, 255, 0.18);
+    background: rgba(13, 16, 36, 0.75);
+    color: #e8ecff;
+    font-size: 1rem;
+    line-height: 1.45;
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease,
+      transform 120ms ease;
+    cursor: pointer;
+  }
+
+  .answer:hover:not(:disabled) {
+    border-color: rgba(143, 208, 255, 0.45);
+    background: rgba(20, 25, 52, 0.9);
+  }
+
+  .answer:disabled {
+    cursor: default;
+  }
+
+  .answer-selected {
+    border-color: rgba(62, 166, 255, 0.85);
+    background: linear-gradient(135deg, rgba(62, 166, 255, 0.22), rgba(168, 85, 247, 0.18));
+    box-shadow: 0 0 0 1px rgba(62, 166, 255, 0.4);
+  }
+
+  .answer-key {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.625rem;
+    border: 1px solid rgba(143, 208, 255, 0.28);
+    background: rgba(6, 8, 20, 0.8);
+    font-family: var(--font-display);
+    font-size: 0.8125rem;
+    color: var(--color-ion-soft);
+  }
+
+  .answer-selected .answer-key {
+    border-color: rgba(62, 166, 255, 0.8);
+    background: rgba(62, 166, 255, 0.28);
+    color: #fff;
+  }
+
+  .field {
+    width: 100%;
+    padding: 0.9rem 1.1rem;
+    min-height: 3.25rem;
+    border-radius: 0.875rem;
+    border: 1px solid rgba(143, 208, 255, 0.24);
+    background: rgba(6, 8, 20, 0.85);
+    color: #eef1ff;
+    font-size: 1.0625rem;
+  }
+
+  .field::placeholder {
+    color: rgba(170, 179, 212, 0.55);
+  }
+
+  .field:focus {
+    border-color: rgba(62, 166, 255, 0.7);
+  }
+
+  .stat-card {
+    border-radius: 1rem;
+    border: 1px solid rgba(143, 208, 255, 0.16);
+    background: linear-gradient(160deg, rgba(16, 19, 42, 0.9), rgba(9, 11, 26, 0.9));
+    padding: 1rem 1.125rem;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .chip-pass {
+    color: #6ef2b0;
+    background: rgba(46, 204, 130, 0.14);
+    border: 1px solid rgba(46, 204, 130, 0.35);
+  }
+
+  .chip-fail {
+    color: var(--color-ember-soft);
+    background: rgba(255, 59, 74, 0.13);
+    border: 1px solid rgba(255, 59, 74, 0.35);
+  }
+
+  .chip-neutral {
+    color: var(--color-mist);
+    background: rgba(143, 208, 255, 0.1);
+    border: 1px solid rgba(143, 208, 255, 0.24);
+  }
+}
+
+/* ------------------------------------------------------------------
+   Motion
+   ------------------------------------------------------------------ */
+.fade-up {
+  animation: fade-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pulse-soft {
+  animation: pulse-soft 3.5s ease-in-out infinite;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Print — used by the "Print ticket" action
+   ------------------------------------------------------------------ */
+@media print {
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .starfield,
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only-ticket {
+    box-shadow: none !important;
+  }
+}
