@@ -101,17 +101,43 @@ function getAdminApp(): App {
   );
 }
 
-let cachedDb: Firestore | null = null;
+/**
+ * The Firestore handle is cached on `globalThis` rather than in a module
+ * variable.
+ *
+ * Next.js compiles route handlers and server-rendered pages into separate
+ * bundles, each with its own copy of this module — so a module-level cache is
+ * empty in the second bundle even though `getFirestore()` hands back the very
+ * same instance from the Admin SDK's app registry. Calling `settings()` on
+ * that already-configured instance throws. A global key is shared by every
+ * bundle (and survives dev-server hot reloads), so initialisation happens
+ * exactly once per process.
+ */
+const DB_CACHE_KEY = Symbol.for('mcu-endgame-quiz.firestore');
+
+type SymbolKeyedGlobal = { [key: symbol]: unknown };
 
 /**
  * Lazily initialised Firestore handle. Kept lazy so that a build or a page
  * that never touches the database does not require credentials.
  */
 export function getDb(): Firestore {
-  if (cachedDb) return cachedDb;
+  const globals = globalThis as SymbolKeyedGlobal;
+
+  const cached = globals[DB_CACHE_KEY];
+  if (cached) return cached as Firestore;
+
   const db = getFirestore(getAdminApp());
-  db.settings({ ignoreUndefinedProperties: true });
-  cachedDb = db;
+
+  try {
+    db.settings({ ignoreUndefinedProperties: true });
+  } catch {
+    // Already configured by another bundle instance in this process, which is
+    // exactly the situation the global cache exists to avoid — and harmless,
+    // because the settings are held on the shared instance we just received.
+  }
+
+  globals[DB_CACHE_KEY] = db;
   return db;
 }
 
