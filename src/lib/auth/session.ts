@@ -5,11 +5,20 @@ import { createToken, safeEquals, verifyToken } from './tokens';
 import {
   ADMIN_COOKIE,
   ADMIN_SESSION_TTL_SECONDS,
+  DEVICE_COOKIE,
+  DEVICE_COOKIE_TTL_SECONDS,
   QUIZ_COOKIE,
   QUIZ_SESSION_TTL_SECONDS,
 } from './sessionConfig';
 
-export { ADMIN_COOKIE, ADMIN_SESSION_TTL_SECONDS, QUIZ_COOKIE, QUIZ_SESSION_TTL_SECONDS };
+export {
+  ADMIN_COOKIE,
+  ADMIN_SESSION_TTL_SECONDS,
+  DEVICE_COOKIE,
+  DEVICE_COOKIE_TTL_SECONDS,
+  QUIZ_COOKIE,
+  QUIZ_SESSION_TTL_SECONDS,
+};
 
 const baseCookieOptions = {
   httpOnly: true,
@@ -46,6 +55,29 @@ export async function readQuizSession(): Promise<QuizSession | null> {
 export async function clearQuizSessionCookie(): Promise<void> {
   const store = await cookies();
   store.set(QUIZ_COOKIE, '', { ...baseCookieOptions, maxAge: 0 });
+}
+
+/**
+ * Remembers which device this browser is, signed so it cannot be edited into
+ * someone else's device id.
+ *
+ * This is the half of device recognition that never produces a false positive.
+ * Clearing it does not defeat the limit — the fingerprint still resolves to the
+ * same record — it just costs the server one extra lookup.
+ */
+export async function setDeviceCookie(deviceId: string): Promise<void> {
+  const store = await cookies();
+  store.set(DEVICE_COOKIE, createToken({ kind: 'device', deviceId }, DEVICE_COOKIE_TTL_SECONDS), {
+    ...baseCookieOptions,
+    maxAge: DEVICE_COOKIE_TTL_SECONDS,
+  });
+}
+
+export async function readDeviceCookie(): Promise<string | null> {
+  const store = await cookies();
+  const payload = verifyToken(store.get(DEVICE_COOKIE)?.value);
+  if (!payload || payload.kind !== 'device') return null;
+  return typeof payload.deviceId === 'string' ? payload.deviceId : null;
 }
 
 /**

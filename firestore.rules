@@ -22,6 +22,7 @@ service cloud.firestore {
     // users        — one document per participant (retake eligibility, history)
     // attempts     — one document per exam, including the answer key mapping
     // tickets      — issued certifications
+    // devices      — one-attempt-per-device records (digest only, no raw signals)
     // rateLimits   — fixed-window counters for the login and start endpoints
     //
     // None of these are client-accessible.

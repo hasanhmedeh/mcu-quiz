@@ -15,7 +15,32 @@ export const COLLECTIONS = {
   users: 'users',
   attempts: 'attempts',
   tickets: 'tickets',
+  devices: 'devices',
 } as const;
+
+/**
+ * One record per recognised device.
+ *
+ * Only a digest of the browser signals is kept — never the raw values — plus
+ * which participants have played on it, so a second name on the same machine
+ * can be turned away.
+ */
+export interface DeviceDocument {
+  deviceId: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  /** Users who have *opened* an exam here. */
+  startedUserIds: string[];
+  /** Users who have *finished* one here. This is what triggers the block. */
+  completedUserIds: string[];
+  completedAttempts: number;
+  /** Shown on the blocked screen so people understand why. */
+  lastCompletedDisplayName: string | null;
+  /** Set when the organiser clears the lock; clears `completedUserIds`. */
+  releasedAt: string | null;
+  releaseCount: number;
+  userAgent: string | null;
+}
 
 /** A ticket is its own document so verification is a single point read. */
 export interface TicketDocument {
@@ -45,6 +70,10 @@ export function attemptsCollection(): CollectionReference<AttemptDocument> {
 
 export function ticketsCollection(): CollectionReference<TicketDocument> {
   return getDb().collection(COLLECTIONS.tickets).withConverter(converter<TicketDocument>());
+}
+
+export function devicesCollection(): CollectionReference<DeviceDocument> {
+  return getDb().collection(COLLECTIONS.devices).withConverter(converter<DeviceDocument>());
 }
 
 /**

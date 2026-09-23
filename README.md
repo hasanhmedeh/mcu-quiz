@@ -39,7 +39,7 @@ enforced on the server, with a printable "Endgame Encore" ticket for whoever cle
 | --- | --- |
 | **Exam** | 40 questions — 20 easy, 15 medium, 5 hard |
 | **Pass mark** | 35 / 40 |
-| **Attempts** | One per person, enforced server-side in a Firestore transaction |
+| **Attempts** | One per person **and one per device**, enforced server-side in a Firestore transaction |
 | **Timer** | None — this tests knowledge, not speed |
 | **Scoring** | Entirely server-side; the browser never receives the answer key |
 | **Reward** | A downloadable, printable ticket with a QR verification link |
@@ -174,6 +174,7 @@ to run. (Starting fresh instead? `cp .env.example .env.local`.)
 | `SESSION_SECRET` | yes | Signs the HttpOnly session cookies. 16+ chars. `openssl rand -base64 32` |
 | `ADMIN_USERNAME` | yes | Organiser sign-in for `/admin` |
 | `ADMIN_PASSWORD` | yes | Organiser password — use a strong one |
+| `DEVICE_LOCK_ENABLED` | no | `false` disables the one-attempt-per-device rule. On by default |
 | `NEXT_PUBLIC_SITE_URL` | no | Absolute origin for QR links. Only needed behind a custom domain or proxy |
 
 \* Required unless you use `FIREBASE_SERVICE_ACCOUNT_JSON`.
@@ -319,6 +320,45 @@ Both attempts appear in the dashboard history:
 against them. New exams draw from the unseen pool first and only reuse a question if a difficulty
 tier genuinely runs dry. With 60 easy, 56 medium and 35 hard questions in the bank, at least two
 completely distinct papers are guaranteed.
+
+---
+
+## 13b. One attempt per device
+
+Blocking by name alone is easy to sidestep — fail, type a different name, try again. So an
+attempt is also bound to the **device** it was taken on.
+
+**How a device is recognised.** Two independent signals:
+
+1. **A signed, HttpOnly cookie** valid for a year. Zero false positives, but lost when cookies are
+   cleared.
+2. **A browser fingerprint** — canvas render, WebGL adapter, platform, CPU cores, memory, touch
+   points, colour depth, time zone, and primary language, hashed server-side together with a
+   *normalised* User-Agent (browser and OS family only, so a version bump doesn't mint a new
+   device). This is what survives clearing cookies and local storage.
+
+Either signal can find the device record, so fingerprint drift doesn't lose the history and a
+cleared cookie doesn't reset the limit. Only the digest is stored — never the raw signals.
+
+**When it blocks.** A device is locked once an exam has been *completed* on it. A different name
+on that machine is then turned away. Deliberately, starting-and-abandoning does not lock anything,
+so someone who mistypes their name can start over — and the cheat this exists to stop requires
+finishing an exam, which is exactly what arms the lock.
+
+The person who owns the attempt is never affected: their user ID is on the record, so resuming,
+viewing their result, and any retake you grant all still work.
+
+**What it cannot do.** This is a speed bump, not a security boundary. A different browser, another
+phone, or spoofed values in DevTools will all get past it. It stops casual retries, which is the
+realistic threat among friends.
+
+**Shared devices.** If two genuinely different people need one laptop, the second is blocked.
+Open **Devices** on the dashboard and click **Release device** — the next person can then play,
+and nobody who has already finished gets a second go. Releases are counted so you can see which
+machines are being shared.
+
+**Turning it off.** Set `DEVICE_LOCK_ENABLED=false` and redeploy. Names remain limited to one
+attempt each.
 
 ---
 

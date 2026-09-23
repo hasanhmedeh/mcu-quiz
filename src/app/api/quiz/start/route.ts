@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { validateName } from '@/lib/quiz/names';
-import { startExam } from '@/lib/quiz/service';
-import { setQuizSessionCookie } from '@/lib/auth/session';
+import { startExam, type DeviceIdentity } from '@/lib/quiz/service';
+import { readDeviceCookie, setDeviceCookie, setQuizSessionCookie } from '@/lib/auth/session';
+import {
+  deviceIdFromSignals,
+  deviceSignalsSchema,
+  isDeviceLockEnabled,
+} from '@/lib/device/identity';
 import { consumeRateLimit, rateLimitKey } from '@/lib/auth/rateLimit';
 import { FirebaseConfigError } from '@/lib/firebase/admin';
 import {
@@ -18,7 +23,38 @@ import { PASSING_SCORE, TOTAL_QUESTIONS } from '@/types';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const startSchema = z.object({ name: z.string() });
+// The device block is optional: a browser with scripting restrictions still
+// gets to sit the exam, it is just recognised by its cookie alone.
+const startSchema = z.object({
+  name: z.string(),
+  device: deviceSignalsSchema.optional(),
+});
+
+/**
+ * Works out which device this is.
+ *
+ * Two identifiers are in play — the one the fingerprint produces now, and the
+ * one stored in the cookie from last time. They usually agree. When they do
+ * not (fingerprint drift after a driver update, or a cleared cookie), both are
+ * checked so history is not lost, and the fingerprint's id wins for writing.
+ */
+async function resolveDevice(
+  signals: z.infer<typeof deviceSignalsSchema> | undefined,
+  userAgentValue: string | null,
+): Promise<DeviceIdentity | null> {
+  if (!isDeviceLockEnabled()) return null;
+
+  const cookieId = await readDeviceCookie();
+  const fingerprintId = signals ? deviceIdFromSignals(signals, userAgentValue) : null;
+  const primaryId = fingerprintId ?? cookieId;
+  if (!primaryId) return null;
+
+  const alternateIds = [cookieId, fingerprintId].filter(
+    (id): id is string => typeof id === 'string' && id !== primaryId,
+  );
+
+  return { primaryId, alternateIds };
+}
 
 export async function POST(request: Request) {
   const body = await readJsonBody(request);
@@ -48,16 +84,27 @@ export async function POST(request: Request) {
       );
     }
 
+    const agent = userAgent(request);
+    const device = await resolveDevice(parsed.data.device, agent);
+
     const outcome = await startExam({
       displayName: validation.displayName,
       normalizedName: validation.normalizedName,
-      userAgent: userAgent(request),
+      userAgent: agent,
+      device,
     });
+
+    // Remember the device either way — including when it was just blocked, so
+    // the next visit is recognised without re-running the fingerprint.
+    if (device) await setDeviceCookie(device.primaryId);
 
     if (outcome.kind === 'blocked') {
       return ok(
         {
-          status: 'already_completed' as const,
+          status:
+            outcome.reason === 'device_limit'
+              ? ('device_limit' as const)
+              : ('already_completed' as const),
           displayName: outcome.displayName,
           score: outcome.score,
           totalQuestions: outcome.totalQuestions ?? TOTAL_QUESTIONS,
@@ -65,6 +112,7 @@ export async function POST(request: Request) {
           ticketId: outcome.ticketId,
           completedAt: outcome.completedAt,
           attemptId: outcome.attemptId,
+          deviceOwnerName: outcome.deviceOwnerName,
           passingScore: PASSING_SCORE,
         },
         409,

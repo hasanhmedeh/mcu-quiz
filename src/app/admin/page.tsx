@@ -51,6 +51,7 @@ export default async function AdminPage() {
       stats={data.stats}
       users={data.users}
       recentAttempts={data.recentAttempts}
+      devices={data.devices}
       passingScore={PASSING_SCORE}
       totalQuestions={TOTAL_QUESTIONS}
     />

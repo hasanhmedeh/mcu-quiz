@@ -1,24 +1,27 @@
 import 'server-only';
 
 import { getDb } from '@/lib/firebase/admin';
-import { attemptsCollection, usersCollection } from '@/lib/firebase/collections';
+import { attemptsCollection, devicesCollection, usersCollection } from '@/lib/firebase/collections';
 import {
   PASSING_SCORE,
   type AdminAttemptRow,
+  type AdminDeviceRow,
   type AdminStats,
   type AdminUserRow,
   type AttemptDocument,
 } from '@/types';
 
-/** Plenty for a group of friends, and it keeps the dashboard to two queries. */
+/** Plenty for a group of friends, and it keeps the dashboard to a few queries. */
 const MAX_ATTEMPTS_FETCHED = 1000;
 const MAX_USERS_FETCHED = 500;
+const MAX_DEVICES_FETCHED = 500;
 const RECENT_ATTEMPTS_SHOWN = 25;
 
 export interface AdminDashboardData {
   readonly stats: AdminStats;
   readonly users: AdminUserRow[];
   readonly recentAttempts: AdminAttemptRow[];
+  readonly devices: AdminDeviceRow[];
 }
 
 /** Drops the per-question records; the dashboard never displays them. */
@@ -44,9 +47,10 @@ function toRow(id: string, data: AttemptDocument): AdminAttemptRow {
  * At this scale that is cheaper and simpler than a per-user fan-out.
  */
 export async function getAdminDashboardData(): Promise<AdminDashboardData> {
-  const [userSnapshot, attemptSnapshot] = await Promise.all([
+  const [userSnapshot, attemptSnapshot, deviceSnapshot] = await Promise.all([
     usersCollection().orderBy('updatedAt', 'desc').limit(MAX_USERS_FETCHED).get(),
     attemptsCollection().orderBy('startedAt', 'desc').limit(MAX_ATTEMPTS_FETCHED).get(),
+    devicesCollection().orderBy('lastSeenAt', 'desc').limit(MAX_DEVICES_FETCHED).get(),
   ]);
 
   const attemptsByUser = new Map<string, AdminAttemptRow[]>();
@@ -98,7 +102,28 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       completed.length === 0 ? null : Math.round((scoreTotal / completed.length) * 10) / 10,
   };
 
-  return { stats, users, recentAttempts: allAttempts.slice(0, RECENT_ATTEMPTS_SHOWN) };
+  const devices: AdminDeviceRow[] = deviceSnapshot.docs.map((doc) => {
+    const device = doc.data();
+    return {
+      id: doc.id,
+      firstSeenAt: device.firstSeenAt,
+      lastSeenAt: device.lastSeenAt,
+      completedAttempts: device.completedAttempts,
+      participantCount: new Set([...device.startedUserIds, ...device.completedUserIds]).size,
+      lastCompletedDisplayName: device.lastCompletedDisplayName,
+      // A device only turns anyone away once something has been completed on it.
+      locked: device.completedUserIds.length > 0,
+      releaseCount: device.releaseCount,
+      userAgent: device.userAgent,
+    };
+  });
+
+  return {
+    stats,
+    users,
+    recentAttempts: allAttempts.slice(0, RECENT_ATTEMPTS_SHOWN),
+    devices,
+  };
 }
 
 export type RetakeGrantResult =
@@ -135,6 +160,37 @@ export async function setRetakeAllowed(
     });
 
     return { ok: true, displayName: user.displayName, retakeAllowed: allowed };
+  });
+}
+
+export type ReleaseDeviceResult =
+  | { readonly ok: true; readonly deviceId: string }
+  | { readonly ok: false; readonly error: 'device_not_found' };
+
+/**
+ * Lifts a device lock.
+ *
+ * Clearing `completedUserIds` is what reopens the machine: the per-name rule
+ * still stops anyone who has already played from going again, so releasing a
+ * shared laptop lets the *next* person in without handing the first a second
+ * attempt. Attempt history is untouched.
+ */
+export async function releaseDevice(deviceId: string): Promise<ReleaseDeviceResult> {
+  const db = getDb();
+  const deviceRef = devicesCollection().doc(deviceId);
+
+  return db.runTransaction<ReleaseDeviceResult>(async (transaction) => {
+    const snapshot = await transaction.get(deviceRef);
+    const device = snapshot.data();
+    if (!device) return { ok: false, error: 'device_not_found' };
+
+    transaction.update(deviceRef, {
+      completedUserIds: [],
+      releasedAt: new Date().toISOString(),
+      releaseCount: device.releaseCount + 1,
+    });
+
+    return { ok: true, deviceId };
   });
 }
 

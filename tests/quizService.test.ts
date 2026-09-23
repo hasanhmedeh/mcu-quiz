@@ -40,8 +40,14 @@ interface StartedLike {
   questions: ReadonlyArray<{ id: string; options: readonly string[] }>;
 }
 
+/** Device locking has its own suite; these tests exercise the name rules alone. */
 function start(name: string, normalized: string) {
-  return startExam({ displayName: name, normalizedName: normalized, userAgent: 'vitest' });
+  return startExam({
+    displayName: name,
+    normalizedName: normalized,
+    userAgent: 'vitest',
+    device: null,
+  });
 }
 
 /** Reads the stored option order to answer correctly, exactly as a perfect candidate would. */
@@ -141,6 +147,7 @@ describe('startExam', () => {
         displayName: variant.trim(),
         normalizedName: normalized,
         userAgent: null,
+        device: null,
       });
       expect(blocked.kind).toBe('blocked');
     }

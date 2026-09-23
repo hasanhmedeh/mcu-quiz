@@ -78,6 +78,8 @@ export interface AttemptDocument {
   expiresAt: string;
   completedAt: string | null;
   userAgent: string | null;
+  /** Which device this was taken on, for the one-attempt-per-device rule. */
+  deviceId: string | null;
 }
 
 export interface UserDocument {
@@ -113,6 +115,20 @@ export interface AttemptSummary extends AttemptDocument {
  * Deliberately excludes `questions` — there is no reason to ship 40 answer
  * records per attempt into the admin's browser just to draw a table row.
  */
+/** A device lock the organiser can see and release. */
+export interface AdminDeviceRow {
+  id: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  completedAttempts: number;
+  /** More than one means the device is shared, or someone tried a second name. */
+  participantCount: number;
+  lastCompletedDisplayName: string | null;
+  locked: boolean;
+  releaseCount: number;
+  userAgent: string | null;
+}
+
 export interface AdminAttemptRow {
   id: string;
   userId: string;

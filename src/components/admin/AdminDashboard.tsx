@@ -4,12 +4,13 @@ import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, PageShell, SectionLabel, Spinner } from '@/components/ui/primitives';
 import { cn } from '@/lib/cn';
-import type { AdminAttemptRow, AdminStats, AdminUserRow } from '@/types';
+import type { AdminAttemptRow, AdminDeviceRow, AdminStats, AdminUserRow } from '@/types';
 
 interface AdminDashboardProps {
   stats: AdminStats;
   users: AdminUserRow[];
   recentAttempts: AdminAttemptRow[];
+  devices: AdminDeviceRow[];
   passingScore: number;
   totalQuestions: number;
 }
@@ -62,6 +63,7 @@ export function AdminDashboard({
   stats,
   users,
   recentAttempts,
+  devices,
   passingScore,
   totalQuestions,
 }: AdminDashboardProps) {
@@ -70,6 +72,7 @@ export function AdminDashboard({
   const [filter, setFilter] = useState<Filter>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
+  const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const [isRefreshing, startTransition] = useTransition();
 
@@ -130,6 +133,41 @@ export function AdminDashboard({
       setNotice({ tone: 'error', text: 'We could not reach the server. Please try again.' });
     } finally {
       setPendingUserId(null);
+    }
+  }
+
+  async function handleReleaseDevice(device: AdminDeviceRow) {
+    setPendingDeviceId(device.id);
+    setNotice(null);
+
+    try {
+      const response = await fetch('/api/admin/device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: device.id }),
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as
+          | { error?: { message?: string } }
+          | null;
+        setNotice({
+          tone: 'error',
+          text: body?.error?.message ?? 'That device could not be released. Please try again.',
+        });
+        setPendingDeviceId(null);
+        return;
+      }
+
+      setNotice({
+        tone: 'info',
+        text: 'Device released — someone new can now take the exam on it. Anyone who has already played still cannot go again.',
+      });
+      startTransition(() => router.refresh());
+    } catch {
+      setNotice({ tone: 'error', text: 'We could not reach the server. Please try again.' });
+    } finally {
+      setPendingDeviceId(null);
     }
   }
 
@@ -284,6 +322,63 @@ export function AdminDashboard({
           </>
         )}
       </section>
+
+      {/* ---------------- Devices ---------------- */}
+      {devices.length > 0 ? (
+        <section className="mt-10">
+          <SectionLabel>Devices</SectionLabel>
+          <p className="mt-2 max-w-2xl text-xs leading-relaxed text-[color:var(--color-mist)]">
+            Each machine gets one attempt, so changing name on the same phone or laptop does not
+            buy another go. Release a device when two genuinely different people need to share
+            one — it lets the next person in without giving anyone a second attempt.
+          </p>
+
+          <ul className="mt-4 grid gap-2">
+            {devices.map((device) => (
+              <li
+                key={device.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[rgba(143,208,255,0.14)] bg-[rgba(13,16,36,0.55)] px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">
+                    {device.lastCompletedDisplayName ?? 'No completed attempt yet'}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[color:var(--color-mist)]">
+                    {describeDevice(device.userAgent)} · {device.completedAttempts} completed ·{' '}
+                    {device.participantCount} name{device.participantCount === 1 ? '' : 's'} ·{' '}
+                    last seen {formatDateTime(device.lastSeenAt)}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[0.65rem] text-[color:var(--color-mist)]/60">
+                    {device.id}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {device.releaseCount > 0 ? (
+                    <span className="text-[0.65rem] text-[color:var(--color-mist)]">
+                      released {device.releaseCount}×
+                    </span>
+                  ) : null}
+
+                  <span className={device.locked ? 'chip chip-fail' : 'chip chip-neutral'}>
+                    {device.locked ? 'Locked' : 'Open'}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => handleReleaseDevice(device)}
+                    disabled={pendingDeviceId === device.id || !device.locked}
+                    title={device.locked ? undefined : 'Nothing has been completed on this device'}
+                    className="rounded-lg border border-[rgba(62,166,255,0.45)] bg-[rgba(62,166,255,0.14)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                  >
+                    {pendingDeviceId === device.id ? 'Working…' : 'Release device'}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {/* ---------------- Recent activity ---------------- */}
       {recentAttempts.length > 0 ? (

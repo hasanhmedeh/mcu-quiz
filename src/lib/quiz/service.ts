@@ -1,12 +1,14 @@
 import 'server-only';
 
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, type DocumentReference } from 'firebase-admin/firestore';
 import { getDb } from '@/lib/firebase/admin';
 import {
   attemptsCollection,
+  devicesCollection,
   ticketsCollection,
   userIdForNormalizedName,
   usersCollection,
+  type DeviceDocument,
   type TicketDocument,
 } from '@/lib/firebase/collections';
 import { QUESTION_BANK, QUESTION_BANK_BY_ID } from '@/data/questions';
@@ -53,8 +55,17 @@ export interface StartedExam {
   readonly resumed: boolean;
 }
 
+/**
+ * Why someone was turned away.
+ *
+ * `already_completed` — this name has finished the exam.
+ * `device_limit`      — this machine has already been used, under another name.
+ */
+export type BlockedReason = 'already_completed' | 'device_limit';
+
 export interface BlockedExam {
   readonly kind: 'blocked';
+  readonly reason: BlockedReason;
   readonly displayName: string;
   readonly attemptId: string | null;
   readonly score: number | null;
@@ -63,9 +74,39 @@ export interface BlockedExam {
   readonly ticketId: string | null;
   readonly completedAt: string | null;
   readonly completedAttempts: number;
+  /** For `device_limit`: who already played on this device. */
+  readonly deviceOwnerName: string | null;
 }
 
 export type StartExamOutcome = StartedExam | BlockedExam;
+
+/**
+ * How the caller identified this browser.
+ *
+ * `primaryId` is derived from the fingerprint (or the cookie when scripting is
+ * unavailable) and is the record that gets written. `alternateIds` are other
+ * identifiers that might already hold this device's history — chiefly the
+ * cookie, when fingerprint drift has produced a new hash.
+ */
+export interface DeviceIdentity {
+  readonly primaryId: string;
+  readonly alternateIds: readonly string[];
+}
+
+function emptyDevice(deviceId: string, now: string, userAgent: string | null): DeviceDocument {
+  return {
+    deviceId,
+    firstSeenAt: now,
+    lastSeenAt: now,
+    startedUserIds: [],
+    completedUserIds: [],
+    completedAttempts: 0,
+    lastCompletedDisplayName: null,
+    releasedAt: null,
+    releaseCount: 0,
+    userAgent,
+  };
+}
 
 /** Rebuilds the browser payload from stored per-question state. */
 function toClientQuestions(records: readonly AttemptQuestionRecord[]): ClientQuestion[] | null {
@@ -112,6 +153,8 @@ export interface StartExamInput {
   readonly displayName: string;
   readonly normalizedName: string;
   readonly userAgent: string | null;
+  /** Null when device locking is switched off or the browser sent nothing. */
+  readonly device: DeviceIdentity | null;
 }
 
 /**
@@ -126,9 +169,16 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
   const db = getDb();
   const users = usersCollection();
   const attempts = attemptsCollection();
+  const devices = devicesCollection();
 
   const userId = userIdForNormalizedName(input.normalizedName);
   const userRef = users.doc(userId);
+
+  // De-duplicated, primary first, so the record that gets written is the one
+  // the fingerprint currently resolves to.
+  const deviceIds = input.device
+    ? [...new Set([input.device.primaryId, ...input.device.alternateIds])]
+    : [];
 
   return db.runTransaction<StartExamOutcome>(async (transaction) => {
     const nowDate = new Date();
@@ -137,6 +187,17 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
 
     const userSnapshot = await transaction.get(userRef);
     const existing = userSnapshot.data();
+
+    // Every device read happens here, before any write, as Firestore requires.
+    // Sequential rather than concurrent: there are only ever one or two ids,
+    // and it keeps the read ordering inside the transaction unambiguous.
+    const deviceRecords: Array<{ ref: DocumentReference<DeviceDocument>; data?: DeviceDocument }> =
+      [];
+
+    for (const deviceId of deviceIds) {
+      const ref = devices.doc(deviceId);
+      deviceRecords.push({ ref, data: (await transaction.get(ref)).data() });
+    }
 
     // --- Resume an exam that is still open ------------------------------
     if (existing?.activeAttemptId && existing.activeAttemptExpiresAt) {
@@ -173,6 +234,7 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
 
       return {
         kind: 'blocked',
+        reason: 'already_completed',
         displayName: existing.displayName,
         attemptId: existing.latestAttemptId,
         score: latest?.score ?? existing.lastScore,
@@ -181,6 +243,37 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
         ticketId: latest?.ticketId ?? null,
         completedAt: latest?.completedAt ?? null,
         completedAttempts: existing.completedAttempts,
+        deviceOwnerName: null,
+      };
+    }
+
+    // --- Enforce one completed attempt per device -----------------------
+    //
+    // A device that has finished an exam under a *different* name is turned
+    // away, which is what stops someone simply typing a new name. The person
+    // who already played is unaffected: their own userId is on the record, so
+    // resuming, viewing their result, and any organiser-granted retake all
+    // still work. An organiser release clears the list entirely.
+    const claimedElsewhere = deviceRecords.find(
+      (record) =>
+        record.data !== undefined &&
+        record.data.completedUserIds.length > 0 &&
+        !record.data.completedUserIds.includes(userId),
+    );
+
+    if (claimedElsewhere?.data) {
+      return {
+        kind: 'blocked',
+        reason: 'device_limit',
+        displayName: input.displayName,
+        attemptId: null,
+        score: null,
+        totalQuestions: TOTAL_QUESTIONS,
+        passed: null,
+        ticketId: null,
+        completedAt: null,
+        completedAttempts: claimedElsewhere.data.completedAttempts,
+        deviceOwnerName: claimedElsewhere.data.lastCompletedDisplayName,
       };
     }
 
@@ -208,9 +301,31 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
       expiresAt,
       completedAt: null,
       userAgent: input.userAgent,
+      deviceId: input.device?.primaryId ?? null,
     };
 
     transaction.set(attemptRef, attemptDocument);
+
+    // Claim the device for this participant. Recorded at start, so abandoning
+    // an exam and returning under a new name is caught too.
+    if (input.device) {
+      const primary =
+        deviceRecords.find((record) => record.ref.id === input.device?.primaryId) ??
+        deviceRecords[0];
+
+      if (primary) {
+        const base = primary.data ?? emptyDevice(primary.ref.id, now, input.userAgent);
+        const deviceUpdate: DeviceDocument = {
+          ...base,
+          lastSeenAt: now,
+          userAgent: input.userAgent ?? base.userAgent,
+          startedUserIds: base.startedUserIds.includes(userId)
+            ? base.startedUserIds
+            : [...base.startedUserIds, userId],
+        };
+        transaction.set(primary.ref, deviceUpdate);
+      }
+    }
 
     // Questions are recorded as used at *start* time, not at completion, so
     // abandoning an exam and starting over yields a different paper.
@@ -298,6 +413,10 @@ export async function submitExam(input: SubmitExamInput): Promise<AttemptResult>
     const user = userSnapshot.data();
     if (!user) throw new QuizError('user_not_found', 'User record is missing.');
 
+    // Read the device before any write, so the lock can be applied below.
+    const deviceRef = attempt.deviceId ? devicesCollection().doc(attempt.deviceId) : null;
+    const deviceData = deviceRef ? (await transaction.get(deviceRef)).data() : undefined;
+
     const { score, passed, gradedRecords } = gradeAttempt(
       attempt.questions,
       input.answers,
@@ -341,6 +460,22 @@ export async function submitExam(input: SubmitExamInput): Promise<AttemptResult>
       lastPassed: passed,
       bestScore: user.bestScore === null ? score : Math.max(user.bestScore, score),
     });
+
+    // Finishing is what locks the device: from here on, a different name on
+    // this machine is turned away until the organiser releases it.
+    if (deviceRef) {
+      const base = deviceData ?? emptyDevice(deviceRef.id, completedAt, attempt.userAgent);
+      const deviceUpdate: DeviceDocument = {
+        ...base,
+        lastSeenAt: completedAt,
+        completedAttempts: base.completedAttempts + 1,
+        completedUserIds: base.completedUserIds.includes(attempt.userId)
+          ? base.completedUserIds
+          : [...base.completedUserIds, attempt.userId],
+        lastCompletedDisplayName: attempt.displayName,
+      };
+      transaction.set(deviceRef, deviceUpdate);
+    }
 
     if (ticketId) {
       const ticket: TicketDocument = {

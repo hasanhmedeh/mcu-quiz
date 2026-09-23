@@ -25,10 +25,27 @@ describe('generateTicketId', () => {
     }
   });
 
-  it('does not repeat itself across a large batch', () => {
-    const batch = new Set(Array.from({ length: 2000 }, () => generateTicketId(2026)));
-    // 32^6 ≈ 1.07e9 possibilities; a collision in 2000 draws would be remarkable.
-    expect(batch.size).toBe(2000);
+  it('spreads across the keyspace instead of repeating', () => {
+    const size = 2000;
+    const batch = new Set(Array.from({ length: size }, () => generateTicketId(2026)));
+
+    // 32^6 ≈ 1.07e9 possibilities, so ~2000 draws collide about 0.2% of the
+    // time by the birthday paradox — demanding perfect uniqueness would make
+    // this test flaky. A handful of collisions is normal; a broken generator
+    // would produce orders of magnitude more. Real collisions are handled at
+    // issue time anyway: submitExam re-rolls against Firestore.
+    expect(batch.size).toBeGreaterThanOrEqual(size - 5);
+  });
+
+  it('uses the whole alphabet rather than a narrow slice', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 500; i += 1) {
+      for (const character of generateTicketId(2026).slice('EG-2026-'.length)) {
+        seen.add(character);
+      }
+    }
+    // All 32 glyphs should appear across 3000 characters.
+    expect(seen.size).toBe(32);
   });
 });
 
