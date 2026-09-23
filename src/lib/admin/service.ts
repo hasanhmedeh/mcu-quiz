@@ -2,20 +2,41 @@ import 'server-only';
 
 import { getDb } from '@/lib/firebase/admin';
 import { attemptsCollection, usersCollection } from '@/lib/firebase/collections';
-import { PASSING_SCORE, type AdminStats, type AdminUserRow, type AttemptSummary } from '@/types';
+import {
+  PASSING_SCORE,
+  type AdminAttemptRow,
+  type AdminStats,
+  type AdminUserRow,
+  type AttemptDocument,
+} from '@/types';
 
 /** Plenty for a group of friends, and it keeps the dashboard to two queries. */
 const MAX_ATTEMPTS_FETCHED = 1000;
 const MAX_USERS_FETCHED = 500;
+const RECENT_ATTEMPTS_SHOWN = 25;
 
 export interface AdminDashboardData {
   readonly stats: AdminStats;
   readonly users: AdminUserRow[];
-  readonly recentAttempts: AttemptSummary[];
+  readonly recentAttempts: AdminAttemptRow[];
 }
 
-function toSummary(id: string, data: AttemptSummary | undefined): AttemptSummary | null {
-  return data ? { ...data, id } : null;
+/** Drops the per-question records; the dashboard never displays them. */
+function toRow(id: string, data: AttemptDocument): AdminAttemptRow {
+  return {
+    id,
+    userId: data.userId,
+    displayName: data.displayName,
+    attemptNumber: data.attemptNumber,
+    status: data.status,
+    score: data.score,
+    passed: data.passed,
+    totalQuestions: data.totalQuestions,
+    ticketId: data.ticketId,
+    startedAt: data.startedAt,
+    completedAt: data.completedAt,
+    userAgent: data.userAgent,
+  };
 }
 
 /**
@@ -28,16 +49,15 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     attemptsCollection().orderBy('startedAt', 'desc').limit(MAX_ATTEMPTS_FETCHED).get(),
   ]);
 
-  const attemptsByUser = new Map<string, AttemptSummary[]>();
-  const allAttempts: AttemptSummary[] = [];
+  const attemptsByUser = new Map<string, AdminAttemptRow[]>();
+  const allAttempts: AdminAttemptRow[] = [];
 
   for (const doc of attemptSnapshot.docs) {
-    const summary = toSummary(doc.id, doc.data() as AttemptSummary);
-    if (!summary) continue;
-    allAttempts.push(summary);
-    const bucket = attemptsByUser.get(summary.userId);
-    if (bucket) bucket.push(summary);
-    else attemptsByUser.set(summary.userId, [summary]);
+    const row = toRow(doc.id, doc.data());
+    allAttempts.push(row);
+    const bucket = attemptsByUser.get(row.userId);
+    if (bucket) bucket.push(row);
+    else attemptsByUser.set(row.userId, [row]);
   }
 
   const users: AdminUserRow[] = userSnapshot.docs.map((doc) => {
@@ -51,7 +71,9 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       displayName: user.displayName,
       normalizedName: user.normalizedName,
       completedAttempts: user.completedAttempts,
+      totalAttempts: user.totalAttempts,
       retakeAllowed: user.retakeAllowed,
+      retakeGrants: user.retakeGrants,
       lastScore: user.lastScore,
       lastPassed: user.lastPassed,
       bestScore: user.bestScore,
@@ -76,7 +98,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       completed.length === 0 ? null : Math.round((scoreTotal / completed.length) * 10) / 10,
   };
 
-  return { stats, users, recentAttempts: allAttempts.slice(0, 25) };
+  return { stats, users, recentAttempts: allAttempts.slice(0, RECENT_ATTEMPTS_SHOWN) };
 }
 
 export type RetakeGrantResult =

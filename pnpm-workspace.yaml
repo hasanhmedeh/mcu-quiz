@@ -1,0 +1,8 @@
+# pnpm 11 reads project-level settings from this file rather than package.json.
+# Dependency build scripts are opt-in; these three need theirs to run:
+#   @firebase/util / protobufjs  -- pulled in by firebase-admin
+#   unrs-resolver                -- native resolver used by eslint
+allowBuilds:
+  '@firebase/util': true
+  protobufjs: true
+  unrs-resolver: true

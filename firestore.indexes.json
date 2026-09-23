@@ -1,0 +1,5 @@
+{
+  "//": "The dashboard sorts each collection by a single field, which Firestore indexes automatically. No composite indexes are required.",
+  "indexes": [],
+  "fieldOverrides": []
+}

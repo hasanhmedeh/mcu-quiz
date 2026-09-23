@@ -20,7 +20,7 @@ import {
 } from '@/types';
 import { buildExam, gradeAttempt } from './exam';
 import { generateTicketId } from './ticket';
-import { QUIZ_SESSION_TTL_SECONDS } from '@/lib/auth/session';
+import { QUIZ_SESSION_TTL_SECONDS } from '@/lib/auth/sessionConfig';
 
 /** Trim the exclusion list so a user document cannot grow without bound. */
 const MAX_USED_QUESTION_IDS = 600;
@@ -366,6 +366,51 @@ export async function submitExam(input: SubmitExamInput): Promise<AttemptResult>
       attemptNumber: attempt.attemptNumber,
     };
   });
+}
+
+export interface ActiveExam {
+  readonly attemptId: string;
+  readonly displayName: string;
+  readonly attemptNumber: number;
+  readonly totalQuestions: number;
+  readonly questions: ClientQuestion[];
+}
+
+export type ActiveExamLookup =
+  | { readonly kind: 'active'; readonly exam: ActiveExam }
+  | { readonly kind: 'completed'; readonly attemptId: string }
+  | { readonly kind: 'expired' }
+  | { readonly kind: 'missing' };
+
+/**
+ * Loads the exam behind the current session cookie so `/quiz` can render on
+ * the server. The answer key stays here: only prompts and shuffled options
+ * cross into the payload.
+ */
+export async function getActiveExam(
+  attemptId: string,
+  userId: string,
+): Promise<ActiveExamLookup> {
+  const snapshot = await attemptsCollection().doc(attemptId).get();
+  const attempt = snapshot.data();
+
+  if (!attempt || attempt.userId !== userId) return { kind: 'missing' };
+  if (attempt.status === 'completed') return { kind: 'completed', attemptId: snapshot.id };
+  if (new Date(attempt.expiresAt).getTime() < Date.now()) return { kind: 'expired' };
+
+  const questions = toClientQuestions(attempt.questions);
+  if (!questions) return { kind: 'missing' };
+
+  return {
+    kind: 'active',
+    exam: {
+      attemptId: snapshot.id,
+      displayName: attempt.displayName,
+      attemptNumber: attempt.attemptNumber,
+      totalQuestions: attempt.totalQuestions,
+      questions,
+    },
+  };
 }
 
 /** Reads a finished attempt for the result screen. */

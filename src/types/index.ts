@@ -107,17 +107,40 @@ export interface AttemptSummary extends AttemptDocument {
   id: string;
 }
 
+/**
+ * The slice of an attempt the dashboard actually renders.
+ *
+ * Deliberately excludes `questions` — there is no reason to ship 40 answer
+ * records per attempt into the admin's browser just to draw a table row.
+ */
+export interface AdminAttemptRow {
+  id: string;
+  userId: string;
+  displayName: string;
+  attemptNumber: number;
+  status: AttemptStatus;
+  score: number | null;
+  passed: boolean | null;
+  totalQuestions: number;
+  ticketId: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  userAgent: string | null;
+}
+
 export interface AdminUserRow {
   id: string;
   displayName: string;
   normalizedName: string;
   completedAttempts: number;
+  totalAttempts: number;
   retakeAllowed: boolean;
+  retakeGrants: number;
   lastScore: number | null;
   lastPassed: boolean | null;
   bestScore: number | null;
   updatedAt: string;
-  attempts: AttemptSummary[];
+  attempts: AdminAttemptRow[];
 }
 
 export interface AdminStats {

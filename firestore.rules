@@ -1,0 +1,32 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// MCU Endgame Preparation Quiz — Firestore security rules
+//
+// This application never touches Firestore from the browser. Every read and
+// write goes through Next.js route handlers using the Firebase Admin SDK, and
+// the Admin SDK bypasses these rules entirely because it authenticates with a
+// service account.
+//
+// That means the correct rule set for the client is: deny everything.
+//
+// With this deployed, a visitor who opens DevTools and points the Firebase
+// client SDK at this project cannot read another person's score, grant
+// themselves a retake, rewrite an attempt, forge a ticket, or enumerate the
+// question bank — regardless of what the application code does.
+// ---------------------------------------------------------------------------
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // users        — one document per participant (retake eligibility, history)
+    // attempts     — one document per exam, including the answer key mapping
+    // tickets      — issued certifications
+    // rateLimits   — fixed-window counters for the login and start endpoints
+    //
+    // None of these are client-accessible.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

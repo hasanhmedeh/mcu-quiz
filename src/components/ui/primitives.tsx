@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import { Wordmark } from './Wordmark';
 
@@ -78,9 +79,9 @@ export function PageShell({
   return (
     <>
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-5 sm:px-6">
-        <a href="/" className="rounded-lg" aria-label="MCU Endgame Preparation Quiz — home">
+        <Link href="/" className="rounded-lg" aria-label="MCU Endgame Preparation Quiz — home">
           <Wordmark />
-        </a>
+        </Link>
         {headerRight}
       </header>
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-16 sm:px-6">{children}</main>
