@@ -4,10 +4,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useRouter } from 'next/navigation';
 import {
   ALLOWED_EXAM_EXITS,
+  PROCTORING,
   QUESTION_TIME_SECONDS,
   type ClientQuestion,
   type ExamExitKind,
+  type SnapshotReason,
 } from '@/types';
+import {
+  captureStill,
+  getProctorStatus,
+  isProctoringReady,
+  stopProctoring,
+  subscribeToProctoring,
+} from './proctoring';
+import { CameraPreview, ProctorSetup, useProctorStatus } from './ProctorSetup';
 import { Alert, PageShell, Spinner } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { enterFullscreen, exitFullscreen, useExamLockdown } from './useExamLockdown';
@@ -107,6 +117,31 @@ function markClosed(attemptId: string, destination: string): void {
     // The in-memory marker still covers Back within this page's lifetime.
   }
 }
+
+/**
+ * Sends one camera still. keepalive (which caps the body at 64 KB) is only
+ * asked for when the image fits, so a still taken as the page is being left
+ * still has a chance of arriving.
+ */
+function uploadStill(reason: SnapshotReason): void {
+  const image = captureStill();
+  if (!image) return;
+  void fetch('/api/quiz/snapshot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'camera', reason, image }),
+    keepalive: image.length < 60_000,
+  }).catch(() => {});
+}
+
+/** A fresh random gap for every still, so the moment cannot be predicted. */
+function nextStillDelay(): number {
+  const { minIntervalSeconds, maxIntervalSeconds } = PROCTORING;
+  return (minIntervalSeconds + Math.random() * (maxIntervalSeconds - minIntervalSeconds)) * 1000;
+}
+
+/** Exits right after proctoring comes back on are the permission prompts themselves. */
+const PROCTOR_GRACE_MS = 2500;
 
 /** A page restored from the back-forward cache fires `pageshow`, not a fresh load. */
 function subscribeToPageShow(onChange: () => void): () => void {
@@ -289,9 +324,45 @@ export function QuizRunner({
     secondsLeft > 0 &&
     secondsLeft <= WARNING_SECONDS;
 
+  // --- Proctoring --------------------------------------------------------------
+  const proctorStatus = useProctorStatus();
+  const proctorReady = isProctoringReady(proctorStatus);
+  const needsProctoring = !submitting && !discarding && !closedDestination && !proctorReady;
+  const proctorGraceUntil = useRef(0);
+
+  useEffect(() => {
+    if (proctorReady) proctorGraceUntil.current = Date.now() + PROCTOR_GRACE_MS;
+  }, [proctorReady]);
+
+  // Stills on a timer, every 10–20 seconds at random.
+  useEffect(() => {
+    if (!proctorReady || submitting || discarding || closedDestination) return;
+
+    let timer = setTimeout(function tick() {
+      uploadStill('interval');
+      timer = setTimeout(tick, nextStillDelay());
+    }, nextStillDelay());
+
+    // One straight away, once the video has had a moment to show a frame.
+    const first = setTimeout(() => uploadStill('start'), 2000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(first);
+    };
+  }, [closedDestination, discarding, proctorReady, submitting]);
+
   // --- Lockdown: every spell away from the exam is a strike -----------------
   function handleExit(kind: ExamExitKind) {
     if (submittedRef.current || submitting || discarding) return;
+
+    const proctoringLost = kind === 'camera_off';
+    // While the camera prompt is up (or just after), focus and
+    // fullscreen come and go by themselves; that is not leaving.
+    if (!proctoringLost && (needsProctoring || Date.now() < proctorGraceUntil.current)) return;
+
+    // A still at the moment they looked away.
+    uploadStill('exit');
 
     const count = exitCount + 1;
     setExitCount(count);
@@ -329,8 +400,23 @@ export function QuizRunner({
     onExit: handleExit,
   });
 
+  // Switching off the camera counts as leaving.
+  const handleExitRef = useRef(handleExit);
+  useEffect(() => {
+    handleExitRef.current = handleExit;
+  });
+  useEffect(() => {
+    let previous = getProctorStatus();
+    return subscribeToProctoring(() => {
+      const next = getProctorStatus();
+      if (previous.camera && !next.camera) handleExitRef.current('camera_off');
+      previous = next;
+    });
+  }, []);
+
   // The question is hidden behind this whenever the candidate is not fully "in".
-  const lockdownBlocking = needsFullscreen || exitWarning !== null || forcedSubmit;
+  const lockdownBlocking =
+    needsProctoring || needsFullscreen || exitWarning !== null || forcedSubmit;
 
   // Only changes made this session are written back, so the blank
   // pre-hydration state can never overwrite recovered progress.
@@ -358,6 +444,11 @@ export function QuizRunner({
   // Every tick starts the clock if it has not started, and skips any question
   // whose time has run out. The updater returns the same object when nothing
   // moved, so an idle tick only re-renders the countdown itself.
+  //
+  // The very first start waits until nothing is covering the question: someone
+  // opening the exam behind a camera or fullscreen prompt gets to read it and
+  // agree before question 1's time begins. Once running, the clock never
+  // pauses — stepping away later still costs time.
   useEffect(() => {
     if (reviewing || submitting || discarding || closedDestination) return;
 
@@ -366,14 +457,24 @@ export function QuizRunner({
       setNow(tickAt);
       setClockOverride((previous) => {
         const base = previous ?? restoredClock;
-        if (!base) return { index: 0, deadline: tickAt + QUESTION_TIME_MS };
+        if (!base) {
+          return lockdownBlocking ? previous : { index: 0, deadline: tickAt + QUESTION_TIME_MS };
+        }
         const next = catchUp(base, tickAt, questionCount);
         return next === base ? previous : next;
       });
     }, TICK_MS);
 
     return () => clearInterval(id);
-  }, [closedDestination, discarding, questionCount, restoredClock, reviewing, submitting]);
+  }, [
+    closedDestination,
+    discarding,
+    lockdownBlocking,
+    questionCount,
+    restoredClock,
+    reviewing,
+    submitting,
+  ]);
 
   // --- Leaving mid-exam ends it ---------------------------------------------
   // Clicking a link (the logo, say) or pressing Back asks first; confirming
@@ -538,6 +639,7 @@ export function QuizRunner({
 
       submittedRef.current = true;
       exitFullscreen();
+      stopProctoring();
       restoredByAttempt.delete(attemptId);
       restoredClockByAttempt.delete(attemptId);
       try {
@@ -574,6 +676,7 @@ export function QuizRunner({
 
       submittedRef.current = true;
       exitFullscreen();
+      stopProctoring();
       restoredByAttempt.delete(attemptId);
       restoredClockByAttempt.delete(attemptId);
       try {
@@ -625,12 +728,15 @@ export function QuizRunner({
         <div className="time-warning" aria-hidden="true" />
       ) : null}
 
+      {proctorReady && !submitting ? <RecordingIndicator /> : null}
+
       {lockdownBlocking ? (
         <LockdownOverlay
           forced={forcedSubmit}
           submitting={submitting}
           warning={exitWarning}
           needsFullscreen={needsFullscreen}
+          needsProctoring={needsProctoring}
           onReturn={() => {
             enterFullscreen();
             setExitWarning(null);
@@ -731,7 +837,92 @@ export function QuizRunner({
  * fullscreen, just back from another tab or app, or being auto-submitted. The
  * clock keeps running behind it — stepping away never buys time.
  */
+/** Always on screen while the exam is being watched: a self-view and a clear "recording" label. */
+function RecordingIndicator() {
+  return (
+    <div className="fixed right-3 bottom-3 z-40 flex items-center gap-2 rounded-xl border border-[rgba(255,59,74,0.4)] bg-[rgba(9,11,26,0.92)] p-1.5 pr-3 shadow-lg">
+      <CameraPreview className="h-12 w-16 rounded-lg" />
+      <div className="leading-tight">
+        <p className="flex items-center gap-1.5 text-[0.625rem] font-bold tracking-[0.16em] text-[color:var(--color-ember-soft)]">
+          <span aria-hidden="true" className="live-dot inline-block h-2 w-2 rounded-full bg-[color:var(--color-ember)]" />
+          RECORDING
+        </p>
+        <p className="text-[0.625rem] text-[color:var(--color-mist)]">
+          Camera
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function LockdownOverlay({
+  forced,
+  submitting,
+  warning,
+  needsFullscreen,
+  needsProctoring,
+  onReturn,
+  onRetrySubmit,
+}: {
+  forced: boolean;
+  submitting: boolean;
+  warning: number | null;
+  needsFullscreen: boolean;
+  needsProctoring: boolean;
+  onReturn: () => void;
+  onRetrySubmit: () => void;
+}) {
+  if (needsProctoring && !forced) return <ProctorOverlay warning={warning} />;
+  return (
+    <ExitOverlay
+      forced={forced}
+      submitting={submitting}
+      warning={warning}
+      needsFullscreen={needsFullscreen}
+      onReturn={onReturn}
+      onRetrySubmit={onRetrySubmit}
+    />
+  );
+}
+
+/** The camera is off (a reload, or they switched it off): switch it back on. */
+function ProctorOverlay({ warning }: { warning: number | null }) {
+  const remaining = warning === null ? null : ALLOWED_EXAM_EXITS - warning;
+  return (
+      <div className="confirm-backdrop fixed inset-0 z-60 grid place-items-center overflow-y-auto p-4">
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="proctor-title"
+          className="confirm-dialog panel w-full max-w-lg overflow-hidden"
+        >
+          <div aria-hidden="true" className="h-1 w-full bg-[linear-gradient(90deg,var(--color-ember),#d42440)]" />
+          <div className="p-6 sm:p-7">
+            <h2 id="proctor-title" className="display text-xl font-black text-white">
+              Turn proctoring back on
+            </h2>
+            <p className="mt-2 mb-5 text-sm leading-relaxed text-[color:var(--color-mist)]">
+              The exam only continues while the camera
+              {' '}is on. The clock
+              is running.
+              {remaining !== null ? (
+                <span className="font-semibold text-white">
+                  {' '}
+                  Stopping it counted as leaving —{' '}
+                  {remaining === 0
+                    ? 'next time your exam is submitted.'
+                    : `${remaining} more and your exam is submitted.`}
+                </span>
+              ) : null}
+            </p>
+            <ProctorSetup />
+          </div>
+        </div>
+      </div>
+  );
+}
+
+function ExitOverlay({
   forced,
   submitting,
   warning,

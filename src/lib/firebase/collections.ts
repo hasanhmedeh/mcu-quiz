@@ -8,7 +8,7 @@ import type {
   QueryDocumentSnapshot,
   WithFieldValue,
 } from 'firebase-admin/firestore';
-import type { AttemptDocument, UserDocument } from '@/types';
+import type { AttemptDocument, SnapshotDocument, UserDocument } from '@/types';
 import { getDb } from './admin';
 
 export const COLLECTIONS = {
@@ -16,6 +16,7 @@ export const COLLECTIONS = {
   attempts: 'attempts',
   tickets: 'tickets',
   devices: 'devices',
+  snapshots: 'snapshots',
 } as const;
 
 /**
@@ -70,6 +71,11 @@ export function attemptsCollection(): CollectionReference<AttemptDocument> {
 
 export function ticketsCollection(): CollectionReference<TicketDocument> {
   return getDb().collection(COLLECTIONS.tickets).withConverter(converter<TicketDocument>());
+}
+
+/** Proctoring stills. Kept apart from attempts so the live feed stays small. */
+export function snapshotsCollection(): CollectionReference<SnapshotDocument> {
+  return getDb().collection(COLLECTIONS.snapshots).withConverter(converter<SnapshotDocument>());
 }
 
 export function devicesCollection(): CollectionReference<DeviceDocument> {

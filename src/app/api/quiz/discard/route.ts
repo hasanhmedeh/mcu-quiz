@@ -14,6 +14,8 @@ export async function POST() {
   }
 
   try {
+    // Camera stills are kept: discarding must not be a way to erase them.
+    // The organiser can remove them from the gallery.
     await discardExam({ attemptId: session.attemptId, userId: session.userId });
     await clearQuizSessionCookie();
     return ok({ status: 'discarded' as const });

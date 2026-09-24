@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Alert, PageShell, SectionLabel, Spinner } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ProctorGallery } from './ProctorGallery';
 import { cn } from '@/lib/cn';
 import type { AdminAttemptRow, AdminDeviceRow, AdminStats, AdminUserRow } from '@/types';
 
@@ -80,6 +81,8 @@ export function AdminDashboard({
     user: AdminUserRow;
     attempt: AdminAttemptRow;
   } | null>(null);
+  /** Off every time the dialog opens: images are only removed when asked for. */
+  const [deleteImages, setDeleteImages] = useState(false);
   const [regrading, setRegrading] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const [isRefreshing, startTransition] = useTransition();
@@ -146,6 +149,7 @@ export function AdminDashboard({
 
   function handleDeleteAttempt(user: AdminUserRow, attempt: AdminAttemptRow) {
     setNotice(null);
+    setDeleteImages(false);
     setConfirmingDelete({ user, attempt });
   }
 
@@ -160,7 +164,7 @@ export function AdminDashboard({
       const response = await fetch('/api/admin/delete-attempt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attemptId: attempt.id }),
+        body: JSON.stringify({ attemptId: attempt.id, deleteSnapshots: deleteImages }),
       });
 
       if (!response.ok) {
@@ -176,7 +180,13 @@ export function AdminDashboard({
 
       setNotice({
         tone: 'info',
-        text: `Deleted attempt #${attempt.attemptNumber} by ${user.displayName}.`,
+        text:
+          `Deleted attempt #${attempt.attemptNumber} by ${user.displayName}.` +
+          (attempt.snapshotCount > 0
+            ? deleteImages
+              ? ' Its camera images were deleted too.'
+              : ' Its camera images are still in the gallery.'
+            : ''),
       });
       startTransition(() => router.refresh());
     } catch {
@@ -270,6 +280,9 @@ export function AdminDashboard({
             <span aria-hidden="true" className="live-dot mr-2 inline-block h-2 w-2 rounded-full bg-white" />
             Live view
           </Link>
+          <Link href="/admin/gallery" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
+            Gallery
+          </Link>
           <button type="button" className="btn btn-ghost min-h-0 px-4 py-2 text-sm" onClick={handleSignOut}>
             Sign out
           </button>
@@ -289,6 +302,8 @@ export function AdminDashboard({
             user={confirmingDelete.user}
             attempt={confirmingDelete.attempt}
             totalQuestions={totalQuestions}
+            deleteImages={deleteImages}
+            onDeleteImagesChange={setDeleteImages}
           />
         </ConfirmDialog>
       ) : null}
@@ -678,6 +693,8 @@ function AttemptHistory({
   pendingAttemptId: string | null;
   onDelete: (attempt: AdminAttemptRow) => void;
 }) {
+  const [galleryFor, setGalleryFor] = useState<AdminAttemptRow | null>(null);
+
   if (attempts.length === 0) {
     return <p className="text-sm text-[color:var(--color-mist)]">No attempts recorded yet.</p>;
   }
@@ -736,7 +753,17 @@ function AttemptHistory({
                 <td className="py-2 pr-4 font-mono text-[0.7rem] text-[color:var(--color-mist)]/70">
                   {attempt.id}
                 </td>
-                <td className="py-2 text-right">
+                <td className="py-2 text-right whitespace-nowrap">
+                  {attempt.snapshotCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setGalleryFor(attempt)}
+                      aria-label={`Camera and screen captures for attempt #${attempt.attemptNumber}`}
+                      className="mr-2 rounded-lg border border-[rgba(143,208,255,0.35)] px-2.5 py-1.5 text-[0.7rem] font-semibold text-[color:var(--color-mist)] hover:text-white"
+                    >
+                      Captures · {attempt.snapshotCount}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => onDelete(attempt)}
@@ -752,6 +779,15 @@ function AttemptHistory({
           </tbody>
         </table>
       </div>
+
+      {galleryFor ? (
+        <ProctorGallery
+          attemptId={galleryFor.id}
+          title={`${user.displayName} · attempt #${galleryFor.attemptNumber}`}
+          live={galleryFor.status === 'in_progress'}
+          onClose={() => setGalleryFor(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -765,10 +801,14 @@ function DeleteSummary({
   user,
   attempt,
   totalQuestions,
+  deleteImages,
+  onDeleteImagesChange,
 }: {
   user: AdminUserRow;
   attempt: AdminAttemptRow;
   totalQuestions: number;
+  deleteImages: boolean;
+  onDeleteImagesChange: (value: boolean) => void;
 }) {
   const onlyOne = user.attempts.length === 1;
 
@@ -801,6 +841,25 @@ function DeleteSummary({
         </li>
         <li className="font-semibold text-[color:var(--color-ember-soft)]">• This cannot be undone.</li>
       </ul>
+
+      {attempt.snapshotCount > 0 ? (
+        <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-[rgba(143,208,255,0.18)] bg-[rgba(6,8,20,0.55)] px-4 py-3">
+          <input
+            type="checkbox"
+            checked={deleteImages}
+            onChange={(event) => onDeleteImagesChange(event.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-[color:var(--color-ember)]"
+          />
+          <span className="text-xs leading-relaxed">
+            <span className="font-semibold text-white">
+              Also delete its {attempt.snapshotCount} camera image
+              {attempt.snapshotCount === 1 ? '' : 's'}
+            </span>
+            <br />
+            Left unticked, they stay in the gallery under {user.displayName}&apos;s name.
+          </span>
+        </label>
+      ) : null}
     </>
   );
 }

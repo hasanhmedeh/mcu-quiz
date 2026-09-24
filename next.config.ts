@@ -15,8 +15,11 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Never let a quiz payload sit in a shared/proxy cache.
-        source: '/api/:path*',
+        // Never let a quiz payload sit in a shared/proxy cache. Proctoring
+        // images (/api/admin/snapshots/<id>) are left out: they never change,
+        // set their own private cache header, and re-downloading one costs a
+        // Firestore read every time.
+        source: '/api/:path((?!admin/snapshots/).*)',
         headers: [{ key: 'Cache-Control', value: 'no-store, max-age=0' }],
       },
     ];

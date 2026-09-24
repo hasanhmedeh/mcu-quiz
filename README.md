@@ -41,6 +41,7 @@ enforced on the server, with a printable "Endgame Encore" ticket for whoever cle
 | **Pass mark** | 25 / 40 |
 | **Attempts** | One per person **and one per device**, enforced server-side in a Firestore transaction |
 | **Timer** | 20 seconds per question, no going back; a time-out leaves the question blank |
+| **Proctoring** | Camera switched on by the candidate before the exam (the clock does not start until they have read and accepted); a JPEG still every 10–20 s at random and on every exit, stored in Firestore `snapshots`. No screen capture: a page cannot choose which monitor is shared. A "Recording" indicator stays on screen. The organiser browses everything in /admin/gallery; deleting an attempt keeps its images unless the organiser ticks "also delete". |
 | **Lockdown** | Fullscreen exam; leaving the tab, app or fullscreen is detected and logged — the third time auto-submits. Copying is blocked. A web page cannot stop a second device. |
 | **Scoring** | Entirely server-side; the browser never receives the answer key |
 | **Reward** | A downloadable, printable ticket with a QR verification link |

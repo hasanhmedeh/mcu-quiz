@@ -19,6 +19,7 @@ import {
   type LiveQuestion,
 } from '@/types';
 import { QUESTION_BANK_BY_ID } from '@/data/questions';
+import { deleteSnapshotsFor } from '@/lib/proctoring/service';
 
 /** Plenty for a group of friends, and it keeps the dashboard to a few queries. */
 const MAX_ATTEMPTS_FETCHED = 1000;
@@ -50,6 +51,7 @@ function toRow(id: string, data: AttemptDocument): AdminAttemptRow {
     userAgent: data.userAgent,
     exitCount: data.exits?.length ?? 0,
     forcedSubmit: (data.exits?.length ?? 0) > ALLOWED_EXAM_EXITS,
+    snapshotCount: data.snapshotCount ?? 0,
   };
 }
 
@@ -278,6 +280,7 @@ export function toLiveAttempt(id: string, attempt: AttemptDocument): LiveAttempt
     wrong: completed ? attempt.totalQuestions - (attempt.score ?? correct) : wrong,
     expectedScore,
     exitCount: attempt.exits?.length ?? 0,
+    snapshotCount: attempt.snapshotCount ?? 0,
     questions,
   };
 }
@@ -300,6 +303,14 @@ export type DeleteAttemptResult =
   | { readonly ok: true; readonly displayName: string; readonly attemptNumber: number }
   | { readonly ok: false; readonly error: 'attempt_not_found' };
 
+export interface DeleteAttemptOptions {
+  /**
+   * Also remove the attempt's camera stills. Off unless the organiser asks:
+   * kept stills stay in the gallery under the participant's name.
+   */
+  readonly deleteSnapshots?: boolean;
+}
+
 /**
  * Removes a submission as if it had never been taken.
  *
@@ -309,7 +320,10 @@ export type DeleteAttemptResult =
  * Deleting someone's only submission therefore lets them take the exam again.
  * A participant left with no attempts at all is removed entirely.
  */
-export async function deleteAttempt(attemptId: string): Promise<DeleteAttemptResult> {
+export async function deleteAttempt(
+  attemptId: string,
+  options: DeleteAttemptOptions = {},
+): Promise<DeleteAttemptResult> {
   const db = getDb();
   const attempts = attemptsCollection();
   const attemptRef = attempts.doc(attemptId);
@@ -386,6 +400,9 @@ export async function deleteAttempt(attemptId: string): Promise<DeleteAttemptRes
     }
 
     return { ok: true, displayName: attempt.displayName, attemptNumber: attempt.attemptNumber };
+  }).then(async (result) => {
+    if (result.ok && options.deleteSnapshots) await deleteSnapshotsFor(attemptId);
+    return result;
   });
 }
 

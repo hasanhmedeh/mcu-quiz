@@ -4,6 +4,7 @@ import {
   ALLOWED_EXAM_EXITS,
   EXAM_BLUEPRINT,
   PASSING_SCORE,
+  PROCTORING,
   QUESTION_TIME_SECONDS,
   TOTAL_QUESTIONS,
 } from '@/types';
@@ -70,6 +71,11 @@ export default function HomePage() {
             <Rule>
               The exam runs in fullscreen. Switching tab or app counts against you — do it{' '}
               {ALLOWED_EXAM_EXITS + 1} times and your exam is submitted.
+            </Rule>
+            <Rule>
+              Proctored: your camera is captured every {PROCTORING.minIntervalSeconds}–
+              {PROCTORING.maxIntervalSeconds} seconds and whenever you leave. Only the organiser
+              sees it.
             </Rule>
             <Rule>No spoilers — nothing after <em>Captain Marvel</em> is on the exam.</Rule>
             <Rule>Answers are graded on the server. You will see your score at the end.</Rule>

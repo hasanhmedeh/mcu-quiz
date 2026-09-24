@@ -9,6 +9,8 @@ export const dynamic = 'force-dynamic';
 
 const deleteSchema = z.object({
   attemptId: z.string().min(1).max(128),
+  /** Only when the organiser ticks the box; otherwise the stills stay in the gallery. */
+  deleteSnapshots: z.boolean().optional().default(false),
 });
 
 /** Permanently removes one submission, along with its ticket. */
@@ -23,7 +25,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await deleteAttempt(parsed.data.attemptId);
+    const result = await deleteAttempt(parsed.data.attemptId, {
+      deleteSnapshots: parsed.data.deleteSnapshots,
+    });
     if (!result.ok) {
       return fail('attempt_not_found', 'That submission has already been deleted.', 404);
     }

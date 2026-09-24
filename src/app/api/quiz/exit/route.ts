@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const exitSchema = z.object({
-  kind: z.enum(['tab_hidden', 'window_blur', 'fullscreen_exit']),
+  kind: z.enum(['tab_hidden', 'window_blur', 'fullscreen_exit', 'camera_off', 'screen_off']),
   question: z.number().int().min(1).max(200),
 });
 

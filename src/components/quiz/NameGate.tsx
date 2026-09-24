@@ -7,6 +7,8 @@ import { NAME_MAX_LENGTH, validateName } from '@/lib/quiz/names';
 import { collectDeviceSignals } from '@/lib/device/signals';
 import { Alert, Spinner } from '@/components/ui/primitives';
 import { enterFullscreen, exitFullscreen } from './useExamLockdown';
+import { isProctoringReady, stopProctoring } from './proctoring';
+import { ProctorSetup, useProctorStatus } from './ProctorSetup';
 
 interface BlockedState {
   reason: 'already_completed' | 'in_use' | 'device_limit';
@@ -40,7 +42,10 @@ export function NameGate() {
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  const [stage, setStage] = useState<'name' | 'proctor'>('name');
+  const proctorStatus = useProctorStatus();
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
 
@@ -55,6 +60,27 @@ export function NameGate() {
       return;
     }
 
+    // Camera and screen come first, so no exam (and no clock) starts until
+    // proctoring is actually running.
+    setStage('proctor');
+  }
+
+  function backToName() {
+    stopProctoring();
+    setError(null);
+    setStage('name');
+  }
+
+  async function beginExam() {
+    if (submitting) return;
+    const validation = validateName(name);
+    if (!validation.ok) {
+      setStage('name');
+      setError(validation.error);
+      return;
+    }
+
+    setError(null);
     setSubmitting(true);
 
     // The exam runs in fullscreen, and browsers only grant that from a click,
@@ -95,7 +121,10 @@ export function NameGate() {
           attemptId: data.attemptId,
           deviceOwnerName: data.deviceOwnerName ?? null,
         });
+        // No exam, so nothing to proctor.
         exitFullscreen();
+        stopProctoring();
+        setStage('name');
         setSubmitting(false);
         return;
       }
@@ -123,6 +152,40 @@ export function NameGate() {
     if (blocked.reason === 'device_limit') return <DeviceAlreadyUsed state={blocked} onReset={reset} />;
     if (blocked.private) return <NameTaken state={blocked} onReset={reset} />;
     return <AlreadyCompleted state={blocked} onReset={reset} />;
+  }
+
+  if (stage === 'proctor') {
+    const ready = isProctoringReady(proctorStatus);
+    return (
+      <div className="fade-up">
+        <ProctorSetup>
+          {error ? <Alert tone="error">{error}</Alert> : null}
+          <div className="flex flex-col-reverse gap-3 sm:flex-row">
+            <button
+              type="button"
+              className="btn btn-ghost sm:flex-1"
+              onClick={backToName}
+              disabled={submitting}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary sm:flex-1"
+              onClick={() => void beginExam()}
+              disabled={!ready || submitting}
+            >
+              {submitting ? <Spinner label="Opening your exam…" /> : 'Start the exam'}
+            </button>
+          </div>
+          {!ready ? (
+            <p className="text-center text-xs text-[color:var(--color-mist)]/80">
+              The exam starts once the steps above are done.
+            </p>
+          ) : null}
+        </ProctorSetup>
+      </div>
+    );
   }
 
   return (
@@ -160,11 +223,11 @@ export function NameGate() {
       ) : null}
 
       <button type="submit" className="btn btn-primary w-full" disabled={submitting}>
-        {submitting ? <Spinner label="Opening your exam…" /> : 'Begin the exam'}
+        Continue
       </button>
 
       <p className="text-center text-xs text-[color:var(--color-mist)]/80">
-        One attempt per person. Your name is the only thing we store about you.
+        One attempt per person. The exam is proctored: next you will switch on your camera.
       </p>
     </form>
   );

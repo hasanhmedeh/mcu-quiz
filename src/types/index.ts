@@ -31,7 +31,57 @@ export const QUESTION_TIME_SECONDS = 20;
 export const ALLOWED_EXAM_EXITS = 2;
 
 /** What pulled the candidate away from the exam. */
-export type ExamExitKind = 'tab_hidden' | 'window_blur' | 'fullscreen_exit';
+export type ExamExitKind =
+  | 'tab_hidden'
+  | 'window_blur'
+  | 'fullscreen_exit'
+  | 'camera_off'
+  | 'screen_off';
+
+/**
+ * Proctoring: the exam watches through the camera, taking a still every few
+ * seconds. Candidates are told before they start, switch the camera on
+ * themselves, and see a recording indicator throughout.
+ */
+export const PROCTORING = {
+  /** Each gap between stills is picked at random in this range, so the moment cannot be predicted. */
+  minIntervalSeconds: 10,
+  maxIntervalSeconds: 20,
+} as const;
+
+/**
+ * `screen` is no longer captured (a page cannot choose which monitor is
+ * shared), but stills taken while it was are still shown.
+ */
+export type SnapshotKind = 'camera' | 'screen';
+
+/** Why a still was taken. */
+export type SnapshotReason = 'start' | 'interval' | 'exit';
+
+export interface SnapshotDocument {
+  attemptId: string;
+  userId: string;
+  displayName: string;
+  kind: SnapshotKind;
+  reason: SnapshotReason;
+  takenAt: string;
+  /** A JPEG data URL. Small by design: a few tens of kilobytes. */
+  image: string;
+}
+
+/**
+ * What the organiser's galleries receive: everything but the image, which
+ * each thumbnail loads on its own from /api/admin/snapshots/<id>.
+ */
+export interface AdminSnapshot {
+  id: string;
+  attemptId: string;
+  userId: string;
+  displayName: string;
+  kind: SnapshotKind;
+  reason: SnapshotReason;
+  takenAt: string;
+}
 
 export interface ExamExit {
   kind: ExamExitKind;
@@ -101,6 +151,8 @@ export interface AttemptDocument {
   deviceId: string | null;
   /** Every time the candidate left the exam. Absent on attempts from before this existed. */
   exits?: ExamExit[];
+  /** Camera and screen stills stored for this attempt (in the `snapshots` collection). */
+  snapshotCount?: number;
 }
 
 export interface UserDocument {
@@ -167,6 +219,7 @@ export interface AdminAttemptRow {
   exitCount: number;
   /** True when leaving too often is what submitted it. */
   forcedSubmit: boolean;
+  snapshotCount: number;
 }
 
 export interface AdminUserRow {
@@ -234,6 +287,7 @@ export interface LiveAttempt {
    */
   expectedScore: number | null;
   exitCount: number;
+  snapshotCount: number;
   questions: LiveQuestion[];
 }
 

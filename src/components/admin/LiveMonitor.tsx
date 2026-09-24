@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { PageShell, SectionLabel } from '@/components/ui/primitives';
 import { cn } from '@/lib/cn';
 import type { LiveAttempt, LiveQuestion } from '@/types';
+import { ProctorGallery } from './ProctorGallery';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D'] as const;
 
@@ -27,6 +28,7 @@ export function LiveMonitor({ passingScore }: { passingScore: number }) {
   const [attempts, setAttempts] = useState<LiveAttempt[] | null>(null);
   const [connection, setConnection] = useState<Connection>('connecting');
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [galleryFor, setGalleryFor] = useState<LiveAttempt | null>(null);
 
   useEffect(() => {
     const source = new EventSource('/api/admin/live');
@@ -63,6 +65,9 @@ export function LiveMonitor({ passingScore }: { passingScore: number }) {
       headerRight={
         <div className="flex items-center gap-3">
           <ConnectionChip connection={connection} />
+          <Link href="/admin/gallery" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
+            Gallery
+          </Link>
           <Link href="/admin" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
             Dashboard
           </Link>
@@ -100,6 +105,7 @@ export function LiveMonitor({ passingScore }: { passingScore: number }) {
                   passingScore={passingScore}
                   expanded={expanded.has(attempt.id)}
                   onToggle={() => toggle(attempt.id)}
+                  onOpenCaptures={() => setGalleryFor(attempt)}
                 />
               ))
             )}
@@ -114,12 +120,22 @@ export function LiveMonitor({ passingScore }: { passingScore: number }) {
                   passingScore={passingScore}
                   expanded={expanded.has(attempt.id)}
                   onToggle={() => toggle(attempt.id)}
+                  onOpenCaptures={() => setGalleryFor(attempt)}
                 />
               ))}
             </Section>
           ) : null}
         </>
       )}
+
+      {galleryFor ? (
+        <ProctorGallery
+          attemptId={galleryFor.id}
+          title={`${galleryFor.displayName} · attempt #${galleryFor.attemptNumber}`}
+          live={galleryFor.status === 'in_progress'}
+          onClose={() => setGalleryFor(null)}
+        />
+      ) : null}
     </PageShell>
   );
 }
@@ -169,11 +185,13 @@ function AttemptCard({
   passingScore,
   expanded,
   onToggle,
+  onOpenCaptures,
 }: {
   attempt: LiveAttempt;
   passingScore: number;
   expanded: boolean;
   onToggle: () => void;
+  onOpenCaptures: () => void;
 }) {
   const live = attempt.status === 'in_progress';
   const onTrack = attempt.expectedScore !== null && attempt.expectedScore >= passingScore;
@@ -236,14 +254,23 @@ function AttemptCard({
         </div>
       ) : null}
 
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="mt-4 w-full rounded-lg border border-[rgba(143,208,255,0.24)] px-3 py-2 text-xs font-semibold text-[color:var(--color-mist)] hover:border-[rgba(143,208,255,0.45)] hover:text-white"
-      >
-        {expanded ? 'Hide answers' : `Show all ${reached.length} answers`}
-      </button>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="rounded-lg border border-[rgba(143,208,255,0.24)] px-3 py-2 text-xs font-semibold text-[color:var(--color-mist)] hover:border-[rgba(143,208,255,0.45)] hover:text-white"
+        >
+          {expanded ? 'Hide answers' : `Show all ${reached.length} answers`}
+        </button>
+        <button
+          type="button"
+          onClick={onOpenCaptures}
+          className="rounded-lg border border-[rgba(255,59,74,0.4)] bg-[rgba(255,59,74,0.08)] px-3 py-2 text-xs font-semibold text-[color:var(--color-ember-soft)] hover:border-[rgba(255,59,74,0.7)]"
+        >
+          Camera · {attempt.snapshotCount}
+        </button>
+      </div>
 
       {expanded ? (
         <ol className="mt-3 space-y-2">

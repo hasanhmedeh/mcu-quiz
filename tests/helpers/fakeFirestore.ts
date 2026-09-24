@@ -60,7 +60,14 @@ export class FakeDocumentReference {
     await Promise.resolve();
     return this.db.snapshot(this.path);
   }
+
+  async delete(): Promise<void> {
+    await Promise.resolve();
+    this.db.store.delete(this.path);
+  }
 }
+
+type FilterOp = '==' | '<' | '<=' | '>' | '>=';
 
 export interface FakeQuerySnapshot {
   readonly docs: ReadonlyArray<{ readonly id: string; data(): DocData }>;
@@ -75,7 +82,7 @@ export class FakeQuery {
     private readonly orderByField: string | null = null,
     private readonly direction: 'asc' | 'desc' = 'asc',
     private readonly limitCount: number | null = null,
-    private readonly filters: ReadonlyArray<{ field: string; value: unknown }> = [],
+    private readonly filters: ReadonlyArray<{ field: string; op: FilterOp; value: unknown }> = [],
   ) {}
 
   orderBy(field: string, direction: 'asc' | 'desc' = 'asc'): FakeQuery {
@@ -86,13 +93,20 @@ export class FakeQuery {
     return new FakeQuery(this.db, this.collectionPath, this.orderByField, this.direction, count, this.filters);
   }
 
-  /** Equality filters only — the one operator this project queries with. */
-  where(field: string, op: '==', value: unknown): FakeQuery {
-    if (op !== '==') throw new Error(`Fake Firestore: unsupported operator ${op}`);
+  /** Equality and range filters — the operators this project queries with. */
+  where(field: string, op: FilterOp, value: unknown): FakeQuery {
+    if (!['==', '<', '<=', '>', '>='].includes(op)) {
+      throw new Error(`Fake Firestore: unsupported operator ${op}`);
+    }
     return new FakeQuery(this.db, this.collectionPath, this.orderByField, this.direction, this.limitCount, [
       ...this.filters,
-      { field, value },
+      { field, op, value },
     ]);
+  }
+
+  /** A projection; the fake returns whole documents, which callers must tolerate anyway. */
+  select(): FakeQuery {
+    return this;
   }
 
   async get(): Promise<FakeQuerySnapshot> {
@@ -106,7 +120,24 @@ export class FakeQuery {
         data: () => ({ ...stored.data }),
         raw: stored.data,
       }))
-      .filter((entry) => this.filters.every(({ field, value }) => entry.raw[field] === value));
+      .filter((entry) =>
+        this.filters.every(({ field, op, value }) => {
+          const actual = entry.raw[field] as string | number;
+          const expected = value as string | number;
+          switch (op) {
+            case '==':
+              return actual === expected;
+            case '<':
+              return actual < expected;
+            case '<=':
+              return actual <= expected;
+            case '>':
+              return actual > expected;
+            default:
+              return actual >= expected;
+          }
+        }),
+      );
 
     const field = this.orderByField;
     if (field) {
