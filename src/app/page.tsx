@@ -52,11 +52,16 @@ export default function HomePage() {
             have some rewatching to do.
           </p>
 
-          <dl className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <dl
+            className={`mt-8 grid grid-cols-2 gap-3 ${EXAM_BLUEPRINT.hard > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}
+          >
             <Stat value={String(TOTAL_QUESTIONS)} label="Questions" accent="text-white" />
             <Stat value={String(EXAM_BLUEPRINT.easy)} label="Easy" accent="text-[color:var(--color-ion)]" />
             <Stat value={String(EXAM_BLUEPRINT.medium)} label="Medium" accent="text-[color:var(--color-arc)]" />
-            <Stat value={String(EXAM_BLUEPRINT.hard)} label="Hard" accent="text-[color:var(--color-ember)]" />
+            {/* A tier the exam does not use is not worth a "0" tile. */}
+            {EXAM_BLUEPRINT.hard > 0 ? (
+              <Stat value={String(EXAM_BLUEPRINT.hard)} label="Hard" accent="text-[color:var(--color-ember)]" />
+            ) : null}
           </dl>
 
           <p className="display mt-6 text-sm tracking-[0.18em] text-[color:var(--color-gold)]">

@@ -12,9 +12,9 @@ export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'medium', 'hard'] as
 
 /** How many questions of each difficulty make up one exam. */
 export const EXAM_BLUEPRINT: Readonly<Record<Difficulty, number>> = {
-  easy: 20,
-  medium: 15,
-  hard: 5,
+  easy: 30,
+  medium: 10,
+  hard: 0,
 };
 
 export const TOTAL_QUESTIONS = EXAM_BLUEPRINT.easy + EXAM_BLUEPRINT.medium + EXAM_BLUEPRINT.hard;

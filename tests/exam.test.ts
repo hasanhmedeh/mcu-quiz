@@ -30,11 +30,11 @@ function perfectAnswers(records: readonly AttemptQuestionRecord[]): Map<string, 
 }
 
 describe('buildExam', () => {
-  it('always produces exactly 20 easy + 15 medium + 5 hard', () => {
+  it('always produces exactly 30 easy + 10 medium, and no hard', () => {
     for (let i = 0; i < 25; i += 1) {
       const exam = buildExam(QUESTION_BANK);
       expect(exam.records).toHaveLength(TOTAL_QUESTIONS);
-      expect(difficultyBreakdown(exam.records)).toEqual({ easy: 20, medium: 15, hard: 5 });
+      expect(difficultyBreakdown(exam.records)).toEqual({ easy: 30, medium: 10, hard: 0 });
     }
   });
 
@@ -84,13 +84,15 @@ describe('buildExam', () => {
   });
 
   it('shuffles difficulty through the paper so position is not a hint', () => {
-    // Across several exams, hard questions should not all cluster at the end.
+    // Across several exams, the rarer (harder) questions should not all
+    // cluster at the end.
     const positions: number[] = [];
     for (let i = 0; i < 20; i += 1) {
       buildExam(QUESTION_BANK).records.forEach((record, index) => {
-        if (record.difficulty === 'hard') positions.push(index);
+        if (record.difficulty !== 'easy') positions.push(index);
       });
     }
+    expect(positions.length).toBeGreaterThan(0);
     const early = positions.filter((position) => position < TOTAL_QUESTIONS / 2).length;
     expect(early).toBeGreaterThan(0);
     expect(early).toBeLessThan(positions.length);

@@ -4,7 +4,7 @@ A cinematic, single-attempt knowledge exam covering the Marvel Cinematic Univers
 **Iron Man (2008)** through **Captain Marvel (2019)** — built to settle, once and for all, who
 among your friends is actually ready for *Avengers: Endgame*.
 
-Forty questions. Twenty easy, fifteen medium, five hard. Thirty-five to pass. One attempt each,
+Forty questions. Thirty easy, ten medium. Twenty-five to pass. One attempt each,
 enforced on the server, with a printable "Endgame Encore" ticket for whoever clears the bar.
 
 > Unofficial and fan-made. No Marvel logos, posters, artwork or other official assets are used
@@ -37,7 +37,7 @@ enforced on the server, with a printable "Endgame Encore" ticket for whoever cle
 
 | | |
 | --- | --- |
-| **Exam** | 40 questions — 20 easy, 15 medium, 5 hard |
+| **Exam** | 40 questions — 30 easy, 10 medium |
 | **Pass mark** | 25 / 40 |
 | **Attempts** | One per person **and one per device**, enforced server-side in a Firestore transaction |
 | **Timer** | 20 seconds per question, no going back; a time-out leaves the question blank |

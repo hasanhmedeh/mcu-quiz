@@ -48,7 +48,7 @@ export function selectForDifficulty(
 }
 
 /**
- * Builds one complete exam: 20 easy + 15 medium + 5 hard, with question order
+ * Builds one complete exam to the blueprint (30 easy + 10 medium), with question order
  * and option order both randomized.
  */
 export function buildExam(
