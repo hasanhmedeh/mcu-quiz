@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, PageShell, SectionLabel, Spinner } from '@/components/ui/primitives';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { cn } from '@/lib/cn';
 import type { AdminAttemptRow, AdminDeviceRow, AdminStats, AdminUserRow } from '@/types';
 
@@ -73,6 +74,11 @@ export function AdminDashboard({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
   const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null);
+  const [pendingAttemptId, setPendingAttemptId] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<{
+    user: AdminUserRow;
+    attempt: AdminAttemptRow;
+  } | null>(null);
   const [regrading, setRegrading] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const [isRefreshing, startTransition] = useTransition();
@@ -134,6 +140,49 @@ export function AdminDashboard({
       setNotice({ tone: 'error', text: 'We could not reach the server. Please try again.' });
     } finally {
       setPendingUserId(null);
+    }
+  }
+
+  function handleDeleteAttempt(user: AdminUserRow, attempt: AdminAttemptRow) {
+    setNotice(null);
+    setConfirmingDelete({ user, attempt });
+  }
+
+  async function deleteConfirmedAttempt() {
+    if (!confirmingDelete) return;
+    const { user, attempt } = confirmingDelete;
+
+    setPendingAttemptId(attempt.id);
+    setNotice(null);
+
+    try {
+      const response = await fetch('/api/admin/delete-attempt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attemptId: attempt.id }),
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as
+          | { error?: { message?: string } }
+          | null;
+        setNotice({
+          tone: 'error',
+          text: body?.error?.message ?? 'That submission could not be deleted. Please try again.',
+        });
+        return;
+      }
+
+      setNotice({
+        tone: 'info',
+        text: `Deleted attempt #${attempt.attemptNumber} by ${user.displayName}.`,
+      });
+      startTransition(() => router.refresh());
+    } catch {
+      setNotice({ tone: 'error', text: 'We could not reach the server. Please try again.' });
+    } finally {
+      setPendingAttemptId(null);
+      setConfirmingDelete(null);
     }
   }
 
@@ -222,6 +271,23 @@ export function AdminDashboard({
         </div>
       }
     >
+      {confirmingDelete ? (
+        <ConfirmDialog
+          title="Delete this submission?"
+          confirmLabel="Delete submission"
+          busy={pendingAttemptId === confirmingDelete.attempt.id}
+          busyLabel="Deleting…"
+          onConfirm={deleteConfirmedAttempt}
+          onCancel={() => setConfirmingDelete(null)}
+        >
+          <DeleteSummary
+            user={confirmingDelete.user}
+            attempt={confirmingDelete.attempt}
+            totalQuestions={totalQuestions}
+          />
+        </ConfirmDialog>
+      ) : null}
+
       <div className="fade-up">
         <SectionLabel>Organiser dashboard</SectionLabel>
         <h1 className="display mt-3 text-2xl font-black text-white sm:text-3xl">
@@ -343,6 +409,8 @@ export function AdminDashboard({
                       pending={pendingUserId === user.id}
                       onToggle={() => setExpanded(expanded === user.id ? null : user.id)}
                       onRetake={handleRetake}
+                      pendingAttemptId={pendingAttemptId}
+                      onDeleteAttempt={handleDeleteAttempt}
                     />
                   ))}
                 </tbody>
@@ -360,6 +428,8 @@ export function AdminDashboard({
                   pending={pendingUserId === user.id}
                   onToggle={() => setExpanded(expanded === user.id ? null : user.id)}
                   onRetake={handleRetake}
+                  pendingAttemptId={pendingAttemptId}
+                  onDeleteAttempt={handleDeleteAttempt}
                 />
               ))}
             </div>
@@ -467,9 +537,20 @@ interface RowProps {
   pending: boolean;
   onToggle: () => void;
   onRetake: (user: AdminUserRow, allowed: boolean) => void;
+  pendingAttemptId: string | null;
+  onDeleteAttempt: (user: AdminUserRow, attempt: AdminAttemptRow) => void;
 }
 
-function UserRows({ user, totalQuestions, expanded, pending, onToggle, onRetake }: RowProps) {
+function UserRows({
+  user,
+  totalQuestions,
+  expanded,
+  pending,
+  onToggle,
+  onRetake,
+  pendingAttemptId,
+  onDeleteAttempt,
+}: RowProps) {
   const latest = user.attempts.at(-1) ?? null;
 
   return (
@@ -516,6 +597,8 @@ function UserRows({ user, totalQuestions, expanded, pending, onToggle, onRetake 
               attempts={user.attempts}
               totalQuestions={totalQuestions}
               latestId={latest?.id ?? null}
+              pendingAttemptId={pendingAttemptId}
+              onDelete={(attempt) => onDeleteAttempt(user, attempt)}
             />
           </td>
         </tr>
@@ -524,7 +607,16 @@ function UserRows({ user, totalQuestions, expanded, pending, onToggle, onRetake 
   );
 }
 
-function UserCard({ user, totalQuestions, expanded, pending, onToggle, onRetake }: RowProps) {
+function UserCard({
+  user,
+  totalQuestions,
+  expanded,
+  pending,
+  onToggle,
+  onRetake,
+  pendingAttemptId,
+  onDeleteAttempt,
+}: RowProps) {
   return (
     <article className="panel p-4">
       <div className="flex items-start justify-between gap-3">
@@ -557,6 +649,8 @@ function UserCard({ user, totalQuestions, expanded, pending, onToggle, onRetake 
             attempts={user.attempts}
             totalQuestions={totalQuestions}
             latestId={user.attempts.at(-1)?.id ?? null}
+            pendingAttemptId={pendingAttemptId}
+            onDelete={(attempt) => onDeleteAttempt(user, attempt)}
           />
         </div>
       ) : null}
@@ -569,11 +663,15 @@ function AttemptHistory({
   attempts,
   totalQuestions,
   latestId,
+  pendingAttemptId,
+  onDelete,
 }: {
   user: AdminUserRow;
   attempts: AdminAttemptRow[];
   totalQuestions: number;
   latestId: string | null;
+  pendingAttemptId: string | null;
+  onDelete: (attempt: AdminAttemptRow) => void;
 }) {
   if (attempts.length === 0) {
     return <p className="text-sm text-[color:var(--color-mist)]">No attempts recorded yet.</p>;
@@ -586,7 +684,7 @@ function AttemptHistory({
       </p>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[34rem] border-collapse text-left text-xs">
+        <table className="w-full min-w-[38rem] border-collapse text-left text-xs">
           <caption className="sr-only">Every attempt {user.displayName} has made</caption>
           <thead>
             <tr className="text-[0.625rem] uppercase tracking-[0.14em] text-[color:var(--color-mist)]">
@@ -596,7 +694,10 @@ function AttemptHistory({
               <th scope="col" className="py-2 pr-4 font-medium">Date</th>
               <th scope="col" className="py-2 pr-4 font-medium">Ticket</th>
               <th scope="col" className="py-2 pr-4 font-medium">Device</th>
-              <th scope="col" className="py-2 font-medium">Attempt ID</th>
+              <th scope="col" className="py-2 pr-4 font-medium">Attempt ID</th>
+              <th scope="col" className="py-2 text-right font-medium">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -624,8 +725,19 @@ function AttemptHistory({
                 <td className="py-2 pr-4 text-[color:var(--color-mist)]">
                   {describeDevice(attempt.userAgent)}
                 </td>
-                <td className="py-2 font-mono text-[0.7rem] text-[color:var(--color-mist)]/70">
+                <td className="py-2 pr-4 font-mono text-[0.7rem] text-[color:var(--color-mist)]/70">
                   {attempt.id}
+                </td>
+                <td className="py-2 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onDelete(attempt)}
+                    disabled={pendingAttemptId === attempt.id}
+                    aria-label={`Delete attempt #${attempt.attemptNumber} by ${user.displayName}`}
+                    className="rounded-lg border border-[rgba(255,59,74,0.45)] bg-[rgba(255,59,74,0.1)] px-2.5 py-1.5 text-[0.7rem] font-semibold text-[color:var(--color-ember-soft)] disabled:opacity-40"
+                  >
+                    {pendingAttemptId === attempt.id ? 'Deleting…' : 'Delete'}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -639,6 +751,51 @@ function AttemptHistory({
 /* ------------------------------------------------------------------ */
 /* Small pieces                                                        */
 /* ------------------------------------------------------------------ */
+
+/** What the organiser is about to delete, and what follows from it. */
+function DeleteSummary({
+  user,
+  attempt,
+  totalQuestions,
+}: {
+  user: AdminUserRow;
+  attempt: AdminAttemptRow;
+  totalQuestions: number;
+}) {
+  const onlyOne = user.attempts.length === 1;
+
+  return (
+    <>
+      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-xl border border-[rgba(143,208,255,0.14)] bg-[rgba(6,8,20,0.55)] px-4 py-3 text-xs">
+        <dt className="text-[color:var(--color-mist)]/70">Participant</dt>
+        <dd className="truncate font-semibold text-white">{user.displayName}</dd>
+        <dt className="text-[color:var(--color-mist)]/70">Attempt</dt>
+        <dd className="text-white">#{attempt.attemptNumber}</dd>
+        <dt className="text-[color:var(--color-mist)]/70">Result</dt>
+        <dd>
+          <StatusChip attempt={attempt} totalQuestions={totalQuestions} />
+        </dd>
+        {attempt.ticketId ? (
+          <>
+            <dt className="text-[color:var(--color-mist)]/70">Ticket</dt>
+            <dd className="font-mono text-[color:var(--color-gold)]">{attempt.ticketId}</dd>
+          </>
+        ) : null}
+      </dl>
+
+      <ul className="mt-4 space-y-1.5">
+        {attempt.ticketId ? <li>• Their ticket stops verifying.</li> : null}
+        <li>
+          •{' '}
+          {onlyOne
+            ? 'This is their only attempt, so they can take the exam again.'
+            : 'Their other attempts are kept.'}
+        </li>
+        <li className="font-semibold text-[color:var(--color-ember-soft)]">• This cannot be undone.</li>
+      </ul>
+    </>
+  );
+}
 
 function RetakeButton({
   user,

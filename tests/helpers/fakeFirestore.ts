@@ -75,14 +75,24 @@ export class FakeQuery {
     private readonly orderByField: string | null = null,
     private readonly direction: 'asc' | 'desc' = 'asc',
     private readonly limitCount: number | null = null,
+    private readonly filters: ReadonlyArray<{ field: string; value: unknown }> = [],
   ) {}
 
   orderBy(field: string, direction: 'asc' | 'desc' = 'asc'): FakeQuery {
-    return new FakeQuery(this.db, this.collectionPath, field, direction, this.limitCount);
+    return new FakeQuery(this.db, this.collectionPath, field, direction, this.limitCount, this.filters);
   }
 
   limit(count: number): FakeQuery {
-    return new FakeQuery(this.db, this.collectionPath, this.orderByField, this.direction, count);
+    return new FakeQuery(this.db, this.collectionPath, this.orderByField, this.direction, count, this.filters);
+  }
+
+  /** Equality filters only — the one operator this project queries with. */
+  where(field: string, op: '==', value: unknown): FakeQuery {
+    if (op !== '==') throw new Error(`Fake Firestore: unsupported operator ${op}`);
+    return new FakeQuery(this.db, this.collectionPath, this.orderByField, this.direction, this.limitCount, [
+      ...this.filters,
+      { field, value },
+    ]);
   }
 
   async get(): Promise<FakeQuerySnapshot> {
@@ -95,7 +105,8 @@ export class FakeQuery {
         id: path.slice(prefix.length),
         data: () => ({ ...stored.data }),
         raw: stored.data,
-      }));
+      }))
+      .filter((entry) => this.filters.every(({ field, value }) => entry.raw[field] === value));
 
     const field = this.orderByField;
     if (field) {
@@ -132,7 +143,8 @@ export class FakeCollectionReference extends FakeQuery {
 
 type PendingWrite =
   | { kind: 'set'; path: string; data: DocData }
-  | { kind: 'update'; path: string; data: DocData };
+  | { kind: 'update'; path: string; data: DocData }
+  | { kind: 'delete'; path: string };
 
 export class FakeTransaction {
   private readonly reads = new Map<string, number>();
@@ -157,6 +169,10 @@ export class FakeTransaction {
     this.writes.push({ kind: 'update', path: ref.path, data: { ...data } });
   }
 
+  delete(ref: FakeDocumentReference): void {
+    this.writes.push({ kind: 'delete', path: ref.path });
+  }
+
   /** Returns false when a read moved underneath us and the body must re-run. */
   commit(): boolean {
     for (const [path, version] of this.reads) {
@@ -166,6 +182,11 @@ export class FakeTransaction {
 
     for (const write of this.writes) {
       const existing = this.db.store.get(write.path);
+
+      if (write.kind === 'delete') {
+        this.db.store.delete(write.path);
+        continue;
+      }
 
       if (write.kind === 'set') {
         this.db.store.set(write.path, {

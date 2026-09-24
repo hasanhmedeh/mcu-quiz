@@ -21,6 +21,9 @@ export const TOTAL_QUESTIONS = EXAM_BLUEPRINT.easy + EXAM_BLUEPRINT.medium + EXA
 
 export const PASSING_SCORE = 25;
 
+/** Each question gets this long; when it runs out the question is left blank. */
+export const QUESTION_TIME_SECONDS = 20;
+
 /** A question as authored in the bank. Never sent to the browser as-is. */
 export interface QuizQuestion {
   /** Stable identifier, e.g. `e-014`. Changing it invalidates retake history. */

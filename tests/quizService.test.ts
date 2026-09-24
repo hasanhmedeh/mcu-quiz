@@ -573,3 +573,50 @@ describe('regradeCompletedAttempts', () => {
     expect(fakeDb().pathsIn('tickets')).toHaveLength(1);
   });
 });
+
+describe('deleteAttempt', () => {
+  it('removes the only submission and its ticket, so the person can take the exam again', async () => {
+    const { deleteAttempt } = await import('@/lib/admin/service');
+    const result = await completeExam('Hasan', 'hasan', 38);
+    expect(result.ticketId).toMatch(TICKET_PATTERN);
+
+    const outcome = await deleteAttempt(result.attemptId);
+
+    expect(outcome).toMatchObject({ ok: true, displayName: 'Hasan', attemptNumber: 1 });
+    expect(fakeDb().read(`attempts/${result.attemptId}`)).toBeUndefined();
+    expect(await getTicket(result.ticketId as string)).toBeNull();
+    expect(fakeDb().read(`users/${userIdForNormalizedName('hasan')}`)).toBeUndefined();
+
+    const again = (await start('Hasan', 'hasan')) as StartedLike;
+    expect(again.kind).toBe('started');
+    expect(again.attemptNumber).toBe(1);
+  });
+
+  it('rebuilds the summary from the attempts that remain', async () => {
+    const { deleteAttempt } = await import('@/lib/admin/service');
+    const first = await completeExam('John Doe', 'john doe', 21);
+    const userId = userIdForNormalizedName('john doe');
+    await setRetakeAllowed(userId, true);
+    const second = await completeExam('John Doe', 'john doe', 38);
+
+    await deleteAttempt(second.attemptId);
+
+    expect(fakeDb().read(`users/${userId}`)).toMatchObject({
+      completedAttempts: 1,
+      totalAttempts: 1,
+      latestAttemptId: first.attemptId,
+      lastScore: 21,
+      lastPassed: false,
+      bestScore: 21,
+    });
+    expect(fakeDb().read(`attempts/${first.attemptId}`)).toBeDefined();
+    expect(fakeDb().pathsIn('tickets')).toHaveLength(0);
+    // Still has a finished attempt, so still blocked.
+    expect((await start('John Doe', 'john doe')).kind).toBe('blocked');
+  });
+
+  it('reports a submission that is already gone', async () => {
+    const { deleteAttempt } = await import('@/lib/admin/service');
+    expect(await deleteAttempt('missing')).toEqual({ ok: false, error: 'attempt_not_found' });
+  });
+});

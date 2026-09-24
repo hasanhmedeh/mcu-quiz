@@ -20,6 +20,7 @@
     "check": "pnpm run lint && pnpm run typecheck && pnpm run test"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "firebase-admin": "^14.4.0",
     "html-to-image": "^1.11.13",
     "next": "^16.3.6",

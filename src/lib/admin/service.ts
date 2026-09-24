@@ -1,7 +1,12 @@
 import 'server-only';
 
 import { getDb } from '@/lib/firebase/admin';
-import { attemptsCollection, devicesCollection, usersCollection } from '@/lib/firebase/collections';
+import {
+  attemptsCollection,
+  devicesCollection,
+  ticketsCollection,
+  usersCollection,
+} from '@/lib/firebase/collections';
 import {
   PASSING_SCORE,
   type AdminAttemptRow,
@@ -191,6 +196,99 @@ export async function releaseDevice(deviceId: string): Promise<ReleaseDeviceResu
     });
 
     return { ok: true, deviceId };
+  });
+}
+
+export type DeleteAttemptResult =
+  | { readonly ok: true; readonly displayName: string; readonly attemptNumber: number }
+  | { readonly ok: false; readonly error: 'attempt_not_found' };
+
+/**
+ * Removes a submission as if it had never been taken.
+ *
+ * The attempt and its ticket go; the participant's summary (scores, counts,
+ * latest attempt) is rebuilt from whatever attempts remain; and if this was
+ * their only finished attempt on that device, the device stops counting them.
+ * Deleting someone's only submission therefore lets them take the exam again.
+ * A participant left with no attempts at all is removed entirely.
+ */
+export async function deleteAttempt(attemptId: string): Promise<DeleteAttemptResult> {
+  const db = getDb();
+  const attempts = attemptsCollection();
+  const attemptRef = attempts.doc(attemptId);
+
+  // Queries cannot run inside this transaction under the test fake, so the
+  // sibling ids are found first and each one is re-read transactionally.
+  const target = (await attemptRef.get()).data();
+  if (!target) return { ok: false, error: 'attempt_not_found' };
+  const siblingIds = (await attempts.where('userId', '==', target.userId).get()).docs
+    .map((doc) => doc.id)
+    .filter((id) => id !== attemptId);
+
+  return db.runTransaction<DeleteAttemptResult>(async (transaction) => {
+    const attempt = (await transaction.get(attemptRef)).data();
+    if (!attempt) return { ok: false, error: 'attempt_not_found' };
+
+    const userRef = usersCollection().doc(attempt.userId);
+    const user = (await transaction.get(userRef)).data();
+
+    const remaining: Array<AttemptDocument & { id: string }> = [];
+    for (const id of siblingIds) {
+      const sibling = (await transaction.get(attempts.doc(id))).data();
+      if (sibling) remaining.push({ ...sibling, id });
+    }
+
+    const deviceRef = attempt.deviceId ? devicesCollection().doc(attempt.deviceId) : null;
+    const device = deviceRef ? (await transaction.get(deviceRef)).data() : undefined;
+
+    // --- Writes -------------------------------------------------------------
+    transaction.delete(attemptRef);
+    if (attempt.ticketId) transaction.delete(ticketsCollection().doc(attempt.ticketId));
+
+    const completed = remaining
+      .filter((entry) => entry.status === 'completed')
+      .sort((a, b) => a.attemptNumber - b.attemptNumber);
+    const latest = completed.at(-1) ?? null;
+
+    if (user) {
+      if (remaining.length === 0) {
+        transaction.delete(userRef);
+      } else {
+        const wasActive = user.activeAttemptId === attemptId;
+        transaction.update(userRef, {
+          updatedAt: new Date().toISOString(),
+          completedAttempts: completed.length,
+          totalAttempts: remaining.length,
+          latestAttemptId: latest?.id ?? null,
+          lastScore: latest?.score ?? null,
+          lastPassed: latest?.passed ?? null,
+          bestScore: completed.reduce<number | null>(
+            (best, entry) => (entry.score === null ? best : Math.max(best ?? 0, entry.score)),
+            null,
+          ),
+          ...(wasActive ? { activeAttemptId: null, activeAttemptExpiresAt: null } : {}),
+        });
+      }
+    }
+
+    if (deviceRef && device) {
+      const stillCompletedHere = completed.some((entry) => entry.deviceId === attempt.deviceId);
+      const stillStartedHere = remaining.some((entry) => entry.deviceId === attempt.deviceId);
+      transaction.update(deviceRef, {
+        completedAttempts:
+          attempt.status === 'completed'
+            ? Math.max(0, device.completedAttempts - 1)
+            : device.completedAttempts,
+        completedUserIds: stillCompletedHere
+          ? device.completedUserIds
+          : device.completedUserIds.filter((id) => id !== attempt.userId),
+        startedUserIds: stillStartedHere
+          ? device.startedUserIds
+          : device.startedUserIds.filter((id) => id !== attempt.userId),
+      });
+    }
+
+    return { ok: true, displayName: attempt.displayName, attemptNumber: attempt.attemptNumber };
   });
 }
 

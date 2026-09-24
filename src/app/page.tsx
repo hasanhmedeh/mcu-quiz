@@ -1,6 +1,6 @@
 import { NameGate } from '@/components/quiz/NameGate';
 import { PageShell, SectionLabel } from '@/components/ui/primitives';
-import { EXAM_BLUEPRINT, PASSING_SCORE, TOTAL_QUESTIONS } from '@/types';
+import { EXAM_BLUEPRINT, PASSING_SCORE, QUESTION_TIME_SECONDS, TOTAL_QUESTIONS } from '@/types';
 
 const FILMS = [
   'Iron Man',
@@ -57,7 +57,10 @@ export default function HomePage() {
           </p>
 
           <ul className="mt-8 space-y-2.5 text-sm text-[color:var(--color-mist)]">
-            <Rule>No timer. This tests knowledge, not speed.</Rule>
+            <Rule>
+              {QUESTION_TIME_SECONDS} seconds per question, and no going back. Run out of time and
+              it counts as wrong.
+            </Rule>
             <Rule>No spoilers — nothing after <em>Captain Marvel</em> is on the exam.</Rule>
             <Rule>Answers are graded on the server. You will see your score at the end.</Rule>
             <Rule>One attempt per person. Choose your moment.</Rule>

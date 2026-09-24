@@ -26,7 +26,7 @@ vi.mock('firebase-admin/firestore', async () => {
 });
 
 const { QUESTION_BANK_BY_ID } = await import('@/data/questions');
-const { releaseDevice, setRetakeAllowed } = await import('@/lib/admin/service');
+const { deleteAttempt, releaseDevice, setRetakeAllowed } = await import('@/lib/admin/service');
 const { startExam, submitExam } = await import('@/lib/quiz/service');
 const { userIdForNormalizedName } = await import('@/lib/firebase/collections');
 const { deviceIdFromSignals, isDeviceLockEnabled, normalizeUserAgent } = await import(
@@ -335,5 +335,21 @@ describe('isDeviceLockEnabled', () => {
     expect(isDeviceLockEnabled()).toBe(false);
 
     delete process.env.DEVICE_LOCK_ENABLED;
+  });
+});
+
+describe('deleting a submission', () => {
+  it('frees the device when it was the only one finished there', async () => {
+    const result = await playThrough('Hasan', 'hasan', LAPTOP);
+    expect((await start('Someone Else', 'someone else', LAPTOP)).kind).toBe('blocked');
+
+    await deleteAttempt(result.attemptId);
+
+    expect(fakeDb().read('devices/device-laptop')).toMatchObject({
+      completedUserIds: [],
+      startedUserIds: [],
+      completedAttempts: 0,
+    });
+    expect((await start('Someone Else', 'someone else', LAPTOP)).kind).toBe('started');
   });
 });
