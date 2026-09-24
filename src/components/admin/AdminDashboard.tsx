@@ -20,6 +20,18 @@ interface AdminDashboardProps {
 
 type Filter = 'all' | 'passed' | 'failed' | 'retake' | 'in_progress';
 
+type Tab = 'participants' | 'devices' | 'attempts';
+
+const PAGE_SIZE = 10;
+
+/** Clamps `page` so a list that shrinks (search, delete, refresh) never lands on an empty page. */
+function paginate<T>(items: readonly T[], page: number): { rows: T[]; page: number; pageCount: number } {
+  const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const current = Math.min(Math.max(1, page), pageCount);
+  const start = (current - 1) * PAGE_SIZE;
+  return { rows: items.slice(start, start + PAGE_SIZE), page: current, pageCount };
+}
+
 const FILTERS: ReadonlyArray<{ id: Filter; label: string }> = [
   { id: 'all', label: 'Everyone' },
   { id: 'passed', label: 'Passed' },
@@ -71,8 +83,12 @@ export function AdminDashboard({
   totalQuestions,
 }: AdminDashboardProps) {
   const router = useRouter();
+  const [tab, setTab] = useState<Tab>('participants');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [userPage, setUserPage] = useState(1);
+  const [devicePage, setDevicePage] = useState(1);
+  const [attemptPage, setAttemptPage] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
   const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null);
@@ -109,6 +125,16 @@ export function AdminDashboard({
       }
     });
   }, [filter, query, users]);
+
+  const userPaging = paginate(visibleUsers, userPage);
+  const devicePaging = paginate(devices, devicePage);
+  const attemptPaging = paginate(recentAttempts, attemptPage);
+
+  const tabs: ReadonlyArray<{ id: Tab; label: string; count: number }> = [
+    { id: 'participants', label: 'Participants', count: users.length },
+    { id: 'devices', label: 'Devices', count: devices.length },
+    { id: 'attempts', label: 'Recent attempts', count: recentAttempts.length },
+  ];
 
   async function handleRetake(user: AdminUserRow, allowed: boolean) {
     setPendingUserId(user.id);
@@ -333,78 +359,144 @@ export function AdminDashboard({
         </Alert>
       ) : null}
 
-      {/* ---------------- Search & filter ---------------- */}
-      <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="sm:flex-1">
-          <label htmlFor="admin-search" className="sr-only">
-            Search participants by name
-          </label>
-          <input
-            id="admin-search"
-            className="field"
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search a name, e.g. Hasan"
-            autoComplete="off"
-          />
-        </div>
-
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter participants">
-          {FILTERS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setFilter(option.id)}
-              aria-pressed={filter === option.id}
+      {/* ---------------- Tabs ---------------- */}
+      <div
+        role="tablist"
+        aria-label="Dashboard sections"
+        // The divider is an inset shadow, not a border, so the active tab's underline can cover
+        // it without a negative margin — that 1px overflow made the browser draw a scrollbar.
+        className="mt-8 flex gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_rgba(143,208,255,0.16)] scrollbar-none [&::-webkit-scrollbar]:hidden"
+      >
+        {tabs.map((option) => (
+          <button
+            key={option.id}
+            id={`admin-tab-${option.id}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === option.id}
+            aria-controls={`admin-panel-${option.id}`}
+            onClick={() => setTab(option.id)}
+            className={cn(
+              'flex shrink-0 cursor-pointer items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition-colors',
+              tab === option.id
+                ? 'border-[color:var(--color-ion)] text-white'
+                : 'border-transparent text-[color:var(--color-mist)] hover:text-white',
+            )}
+          >
+            {option.label}
+            <span
               className={cn(
-                'rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors',
-                filter === option.id
-                  ? 'border-[rgba(62,166,255,0.7)] bg-[rgba(62,166,255,0.18)] text-white'
-                  : 'border-[rgba(143,208,255,0.22)] bg-[rgba(13,16,36,0.6)] text-[color:var(--color-mist)] hover:border-[rgba(143,208,255,0.45)]',
+                'rounded-full px-2 py-0.5 text-[0.65rem]',
+                tab === option.id
+                  ? 'bg-[rgba(62,166,255,0.2)] text-white'
+                  : 'bg-[rgba(143,208,255,0.1)] text-[color:var(--color-mist)]',
               )}
             >
-              {option.label}
-            </button>
-          ))}
-        </div>
+              {option.count}
+            </span>
+          </button>
+        ))}
       </div>
 
-      {/* ---------------- Participants ---------------- */}
-      <section className="mt-6">
-        <h2 className="sr-only">Participants</h2>
+      {tab === 'participants' ? (
+        <div role="tabpanel" id="admin-panel-participants" aria-labelledby="admin-tab-participants">
+          {/* ---------------- Search & filter ---------------- */}
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="sm:flex-1">
+              <label htmlFor="admin-search" className="sr-only">
+                Search participants by name
+              </label>
+              <input
+                id="admin-search"
+                className="field"
+                type="search"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setUserPage(1);
+                }}
+                placeholder="Search a name, e.g. Hasan"
+                autoComplete="off"
+              />
+            </div>
 
-        {users.length === 0 ? (
-          <EmptyState
-            title="Nobody has taken the exam yet"
-            body="Share the link with your friends — results will appear here as they finish."
-          />
-        ) : visibleUsers.length === 0 ? (
-          <EmptyState
-            title="No matches"
-            body="Nobody matches that search and filter. Try clearing one of them."
-          />
-        ) : (
-          <>
-            {/* Desktop table */}
-            <div className="hidden overflow-x-auto panel md:block">
-              <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
-                <caption className="sr-only">
-                  Participants, their latest score and retake status
-                </caption>
-                <thead>
-                  <tr className="border-b border-[rgba(143,208,255,0.16)] text-[0.6875rem] uppercase tracking-[0.14em] text-[color:var(--color-mist)]">
-                    <th scope="col" className="px-4 py-3 font-medium">Name</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Latest score</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Attempts</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Last activity</th>
-                    <th scope="col" className="px-4 py-3 text-right font-medium">Retake</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleUsers.map((user) => (
-                    <UserRows
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Filter participants">
+              {FILTERS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => {
+                    setFilter(option.id);
+                    setUserPage(1);
+                  }}
+                  aria-pressed={filter === option.id}
+                  className={cn(
+                    'rounded-full border px-3.5 py-2 text-xs font-semibold transition-colors',
+                    filter === option.id
+                      ? 'border-[rgba(62,166,255,0.7)] bg-[rgba(62,166,255,0.18)] text-white'
+                      : 'border-[rgba(143,208,255,0.22)] bg-[rgba(13,16,36,0.6)] text-[color:var(--color-mist)] hover:border-[rgba(143,208,255,0.45)]',
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ---------------- Participants ---------------- */}
+          <section className="mt-6">
+            <h2 className="sr-only">Participants</h2>
+
+            {users.length === 0 ? (
+              <EmptyState
+                title="Nobody has taken the exam yet"
+                body="Share the link with your friends — results will appear here as they finish."
+              />
+            ) : visibleUsers.length === 0 ? (
+              <EmptyState
+                title="No matches"
+                body="Nobody matches that search and filter. Try clearing one of them."
+              />
+            ) : (
+              <>
+                {/* Desktop table */}
+                <div className="hidden overflow-x-auto panel md:block">
+                  <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
+                    <caption className="sr-only">
+                      Participants, their latest score and retake status
+                    </caption>
+                    <thead>
+                      <tr className="border-b border-[rgba(143,208,255,0.16)] text-[0.6875rem] uppercase tracking-[0.14em] text-[color:var(--color-mist)]">
+                        <th scope="col" className="px-4 py-3 font-medium">Name</th>
+                        <th scope="col" className="px-4 py-3 font-medium">Latest score</th>
+                        <th scope="col" className="px-4 py-3 font-medium">Status</th>
+                        <th scope="col" className="px-4 py-3 font-medium">Attempts</th>
+                        <th scope="col" className="px-4 py-3 font-medium">Last activity</th>
+                        <th scope="col" className="px-4 py-3 text-right font-medium">Retake</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userPaging.rows.map((user) => (
+                        <UserRows
+                          key={user.id}
+                          user={user}
+                          totalQuestions={totalQuestions}
+                          expanded={expanded === user.id}
+                          pending={pendingUserId === user.id}
+                          onToggle={() => setExpanded(expanded === user.id ? null : user.id)}
+                          onRetake={handleRetake}
+                          pendingAttemptId={pendingAttemptId}
+                          onDeleteAttempt={handleDeleteAttempt}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile cards */}
+                <div className="grid gap-3 md:hidden">
+                  {userPaging.rows.map((user) => (
+                    <UserCard
                       key={user.id}
                       user={user}
                       totalQuestions={totalQuestions}
@@ -416,113 +508,141 @@ export function AdminDashboard({
                       onDeleteAttempt={handleDeleteAttempt}
                     />
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </div>
 
-            {/* Mobile cards */}
-            <div className="grid gap-3 md:hidden">
-              {visibleUsers.map((user) => (
-                <UserCard
-                  key={user.id}
-                  user={user}
-                  totalQuestions={totalQuestions}
-                  expanded={expanded === user.id}
-                  pending={pendingUserId === user.id}
-                  onToggle={() => setExpanded(expanded === user.id ? null : user.id)}
-                  onRetake={handleRetake}
-                  pendingAttemptId={pendingAttemptId}
-                  onDeleteAttempt={handleDeleteAttempt}
+                <Pagination
+                  page={userPaging.page}
+                  pageCount={userPaging.pageCount}
+                  total={visibleUsers.length}
+                  noun="participant"
+                  onChange={setUserPage}
                 />
-              ))}
-            </div>
-          </>
-        )}
-      </section>
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
 
       {/* ---------------- Devices ---------------- */}
-      {devices.length > 0 ? (
-        <section className="mt-10">
-          <SectionLabel>Devices</SectionLabel>
-          <p className="mt-2 max-w-2xl text-xs leading-relaxed text-[color:var(--color-mist)]">
+      {tab === 'devices' ? (
+        <section role="tabpanel" id="admin-panel-devices" aria-labelledby="admin-tab-devices" className="mt-6">
+          <h2 className="sr-only">Devices</h2>
+          <p className="max-w-2xl text-xs leading-relaxed text-[color:var(--color-mist)]">
             Each machine gets one attempt, so changing name on the same phone or laptop does not
             buy another go. Release a device when two genuinely different people need to share
             one — it lets the next person in without giving anyone a second attempt.
           </p>
 
-          <ul className="mt-4 grid gap-2">
-            {devices.map((device) => (
-              <li
-                key={device.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[rgba(143,208,255,0.14)] bg-[rgba(13,16,36,0.55)] px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-white">
-                    {device.lastCompletedDisplayName ?? 'No completed attempt yet'}
-                  </p>
-                  <p className="mt-0.5 text-xs text-[color:var(--color-mist)]">
-                    {describeDevice(device.userAgent)} · {device.completedAttempts} completed ·{' '}
-                    {device.participantCount} name{device.participantCount === 1 ? '' : 's'} ·{' '}
-                    last seen {formatDateTime(device.lastSeenAt)}
-                  </p>
-                  <p className="mt-0.5 font-mono text-[0.65rem] text-[color:var(--color-mist)]/60">
-                    {device.id}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  {device.releaseCount > 0 ? (
-                    <span className="text-[0.65rem] text-[color:var(--color-mist)]">
-                      released {device.releaseCount}×
-                    </span>
-                  ) : null}
-
-                  <span className={device.locked ? 'chip chip-fail' : 'chip chip-neutral'}>
-                    {device.locked ? 'Locked' : 'Open'}
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={() => handleReleaseDevice(device)}
-                    disabled={pendingDeviceId === device.id || !device.locked}
-                    title={device.locked ? undefined : 'Nothing has been completed on this device'}
-                    className="rounded-lg border border-[rgba(62,166,255,0.45)] bg-[rgba(62,166,255,0.14)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+          {devices.length === 0 ? (
+            <div className="mt-4">
+              <EmptyState
+                title="No devices yet"
+                body="Devices show up here once someone opens the exam."
+              />
+            </div>
+          ) : (
+            <>
+              <ul className="mt-4 grid gap-2">
+                {devicePaging.rows.map((device) => (
+                  <li
+                    key={device.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[rgba(143,208,255,0.14)] bg-[rgba(13,16,36,0.55)] px-4 py-3"
                   >
-                    {pendingDeviceId === device.id ? 'Working…' : 'Release device'}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-white">
+                        {device.lastCompletedDisplayName ?? 'No completed attempt yet'}
+                      </p>
+                      <p className="mt-0.5 text-xs text-[color:var(--color-mist)]">
+                        {describeDevice(device.userAgent)} · {device.completedAttempts} completed ·{' '}
+                        {device.participantCount} name{device.participantCount === 1 ? '' : 's'} ·{' '}
+                        last seen {formatDateTime(device.lastSeenAt)}
+                      </p>
+                      <p className="mt-0.5 font-mono text-[0.65rem] text-[color:var(--color-mist)]/60">
+                        {device.id}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {device.releaseCount > 0 ? (
+                        <span className="text-[0.65rem] text-[color:var(--color-mist)]">
+                          released {device.releaseCount}×
+                        </span>
+                      ) : null}
+
+                      <span className={device.locked ? 'chip chip-fail' : 'chip chip-neutral'}>
+                        {device.locked ? 'Locked' : 'Open'}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => handleReleaseDevice(device)}
+                        disabled={pendingDeviceId === device.id || !device.locked}
+                        title={device.locked ? undefined : 'Nothing has been completed on this device'}
+                        className="rounded-lg border border-[rgba(62,166,255,0.45)] bg-[rgba(62,166,255,0.14)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                      >
+                        {pendingDeviceId === device.id ? 'Working…' : 'Release device'}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <Pagination
+                page={devicePaging.page}
+                pageCount={devicePaging.pageCount}
+                total={devices.length}
+                noun="device"
+                onChange={setDevicePage}
+              />
+            </>
+          )}
         </section>
       ) : null}
 
       {/* ---------------- Recent activity ---------------- */}
-      {recentAttempts.length > 0 ? (
-        <section className="mt-10">
-          <SectionLabel>Recent attempts</SectionLabel>
-          <ul className="mt-4 grid gap-2">
-            {recentAttempts.slice(0, 12).map((attempt) => (
-              <li
-                key={attempt.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[rgba(143,208,255,0.14)] bg-[rgba(13,16,36,0.55)] px-4 py-3 text-sm"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-white">{attempt.displayName}</p>
-                  <p className="text-xs text-[color:var(--color-mist)]">
-                    Attempt #{attempt.attemptNumber} · {describeDevice(attempt.userAgent)}
-                  </p>
-                </div>
+      {tab === 'attempts' ? (
+        <section role="tabpanel" id="admin-panel-attempts" aria-labelledby="admin-tab-attempts" className="mt-6">
+          <h2 className="sr-only">Recent attempts</h2>
 
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-[color:var(--color-mist)]">
-                    {formatDateTime(attempt.completedAt ?? attempt.startedAt)}
-                  </span>
-                  <StatusChip attempt={attempt} totalQuestions={totalQuestions} />
-                </div>
-              </li>
-            ))}
-          </ul>
+          {recentAttempts.length === 0 ? (
+            <EmptyState
+              title="No attempts yet"
+              body="Attempts appear here, newest first, as soon as someone starts the exam."
+            />
+          ) : (
+            <>
+              <ul className="grid gap-2">
+                {attemptPaging.rows.map((attempt) => (
+                  <li
+                    key={attempt.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[rgba(143,208,255,0.14)] bg-[rgba(13,16,36,0.55)] px-4 py-3 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-white">{attempt.displayName}</p>
+                      <p className="text-xs text-[color:var(--color-mist)]">
+                        Attempt #{attempt.attemptNumber} · {describeDevice(attempt.userAgent)}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-[color:var(--color-mist)]">
+                        {formatDateTime(attempt.completedAt ?? attempt.startedAt)}
+                      </span>
+                      <StatusChip attempt={attempt} totalQuestions={totalQuestions} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <Pagination
+                page={attemptPaging.page}
+                pageCount={attemptPaging.pageCount}
+                total={recentAttempts.length}
+                noun="attempt"
+                onChange={setAttemptPage}
+              />
+            </>
+          )}
         </section>
       ) : null}
     </PageShell>
@@ -955,6 +1075,57 @@ function StatCard({
         {value}
       </dd>
     </div>
+  );
+}
+
+/** Previous / next with the current range; renders nothing when everything fits on one page. */
+function Pagination({
+  page,
+  pageCount,
+  total,
+  noun,
+  onChange,
+}: {
+  page: number;
+  pageCount: number;
+  total: number;
+  noun: string;
+  onChange: (page: number) => void;
+}) {
+  if (pageCount <= 1) return null;
+
+  const first = (page - 1) * PAGE_SIZE + 1;
+  const last = Math.min(page * PAGE_SIZE, total);
+  const buttonClass =
+    'rounded-lg border border-[rgba(143,208,255,0.24)] bg-[rgba(13,16,36,0.6)] px-3 py-2 text-xs font-semibold text-white hover:border-[rgba(143,208,255,0.45)] disabled:opacity-40 disabled:hover:border-[rgba(143,208,255,0.24)]';
+
+  return (
+    <nav
+      aria-label={`${noun} pages`}
+      className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-[color:var(--color-mist)]"
+    >
+      <p>
+        {first}–{last} of {total} {noun}
+        {total === 1 ? '' : 's'}
+      </p>
+
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={() => onChange(page - 1)} disabled={page <= 1} className={buttonClass}>
+          ← Previous
+        </button>
+        <span aria-current="page" className="px-1 tabular-nums">
+          Page {page} of {pageCount}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange(page + 1)}
+          disabled={page >= pageCount}
+          className={buttonClass}
+        >
+          Next →
+        </button>
+      </div>
+    </nav>
   );
 }
 

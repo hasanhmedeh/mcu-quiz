@@ -25,7 +25,8 @@ import { deleteSnapshotsFor } from '@/lib/proctoring/service';
 const MAX_ATTEMPTS_FETCHED = 1000;
 const MAX_USERS_FETCHED = 500;
 const MAX_DEVICES_FETCHED = 500;
-const RECENT_ATTEMPTS_SHOWN = 25;
+/** Paginated on the dashboard, so this only bounds the payload. */
+const RECENT_ATTEMPTS_SHOWN = 200;
 
 export interface AdminDashboardData {
   readonly stats: AdminStats;
