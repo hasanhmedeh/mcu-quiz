@@ -1,6 +1,12 @@
 import { NameGate } from '@/components/quiz/NameGate';
 import { PageShell, SectionLabel } from '@/components/ui/primitives';
-import { EXAM_BLUEPRINT, PASSING_SCORE, QUESTION_TIME_SECONDS, TOTAL_QUESTIONS } from '@/types';
+import {
+  ALLOWED_EXAM_EXITS,
+  EXAM_BLUEPRINT,
+  PASSING_SCORE,
+  QUESTION_TIME_SECONDS,
+  TOTAL_QUESTIONS,
+} from '@/types';
 
 const FILMS = [
   'Iron Man',
@@ -60,6 +66,10 @@ export default function HomePage() {
             <Rule>
               {QUESTION_TIME_SECONDS} seconds per question, and no going back. Run out of time and
               it counts as wrong.
+            </Rule>
+            <Rule>
+              The exam runs in fullscreen. Switching tab or app counts against you — do it{' '}
+              {ALLOWED_EXAM_EXITS + 1} times and your exam is submitted.
             </Rule>
             <Rule>No spoilers — nothing after <em>Captain Marvel</em> is on the exam.</Rule>
             <Rule>Answers are graded on the server. You will see your score at the end.</Rule>

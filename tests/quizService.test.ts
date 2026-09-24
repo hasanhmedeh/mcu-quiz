@@ -740,3 +740,40 @@ describe('discardExam', () => {
     expect(fakeDb().read(`attempts/${open.attemptId}`)).toBeDefined();
   });
 });
+
+describe('recordExamExit', () => {
+  it('logs each exit on the attempt and calls for submission past the allowance', async () => {
+    const { recordExamExit } = await import('@/lib/quiz/service');
+    const { ALLOWED_EXAM_EXITS } = await import('@/types');
+    const exam = (await start('Hasan', 'hasan')) as StartedLike;
+    const input = { attemptId: exam.attemptId, userId: exam.userId, kind: 'tab_hidden' as const, question: 3 };
+
+    for (let i = 1; i <= ALLOWED_EXAM_EXITS; i += 1) {
+      expect(await recordExamExit(input)).toEqual({ exitCount: i, mustSubmit: false });
+    }
+    expect(await recordExamExit({ ...input, kind: 'fullscreen_exit' })).toEqual({
+      exitCount: ALLOWED_EXAM_EXITS + 1,
+      mustSubmit: true,
+    });
+
+    const exits = fakeDb().read(`attempts/${exam.attemptId}`)?.exits as Array<{ kind: string; question: number }>;
+    expect(exits).toHaveLength(ALLOWED_EXAM_EXITS + 1);
+    expect(exits.at(-1)).toMatchObject({ kind: 'fullscreen_exit', question: 3 });
+
+    const active = await getActiveExam(exam.attemptId, exam.userId);
+    expect(active).toMatchObject({ kind: 'active', exam: { exitCount: ALLOWED_EXAM_EXITS + 1 } });
+  });
+
+  it('ignores exits after submission and refuses another participant’s session', async () => {
+    const { recordExamExit } = await import('@/lib/quiz/service');
+    const done = await completeExam('Hasan', 'hasan', 30);
+    const userId = userIdForNormalizedName('hasan');
+
+    expect(
+      await recordExamExit({ attemptId: done.attemptId, userId, kind: 'window_blur', question: 1 }),
+    ).toEqual({ exitCount: 0, mustSubmit: false });
+    await expect(
+      recordExamExit({ attemptId: done.attemptId, userId: 'someone-else', kind: 'tab_hidden', question: 1 }),
+    ).rejects.toMatchObject({ code: 'invalid_session' });
+  });
+});

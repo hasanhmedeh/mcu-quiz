@@ -2,9 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { QUESTION_TIME_SECONDS, type ClientQuestion } from '@/types';
+import {
+  ALLOWED_EXAM_EXITS,
+  QUESTION_TIME_SECONDS,
+  type ClientQuestion,
+  type ExamExitKind,
+} from '@/types';
 import { Alert, PageShell, Spinner } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { enterFullscreen, exitFullscreen, useExamLockdown } from './useExamLockdown';
 import { cn } from '@/lib/cn';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D'] as const;
@@ -27,6 +33,8 @@ interface QuizRunnerProps {
   totalQuestions: number;
   passingScore: number;
   questions: ClientQuestion[];
+  /** Times already spent away from this exam, from the server. */
+  initialExitCount: number;
 }
 
 type Answers = Record<string, number>;
@@ -162,6 +170,7 @@ export function QuizRunner({
   totalQuestions,
   passingScore,
   questions,
+  initialExitCount,
 }: QuizRunnerProps) {
   const router = useRouter();
   const questionCount = questions.length;
@@ -190,6 +199,10 @@ export function QuizRunner({
   const [leaving, setLeaving] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const stayInExam = useCallback(() => setLeaving(false), []);
+  const [exitCount, setExitCount] = useState(initialExitCount);
+  /** Set when the candidate has just come back from leaving; shows the warning. */
+  const [exitWarning, setExitWarning] = useState<number | null>(null);
+  const [forcedSubmit, setForcedSubmit] = useState(false);
 
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -218,6 +231,49 @@ export function QuizRunner({
     now !== null &&
     secondsLeft > 0 &&
     secondsLeft <= WARNING_SECONDS;
+
+  // --- Lockdown: every spell away from the exam is a strike -----------------
+  function handleExit(kind: ExamExitKind) {
+    if (submittedRef.current || submitting || discarding) return;
+
+    const count = exitCount + 1;
+    setExitCount(count);
+    setLeaving(false);
+
+    const overLimit = count > ALLOWED_EXAM_EXITS;
+    if (overLimit) {
+      setForcedSubmit(true);
+      void handleSubmit();
+    } else {
+      setExitWarning(count);
+    }
+
+    // Recorded server-side either way, so the organiser sees it even if the
+    // browser is tampered with to skip the enforcement above.
+    void fetch('/api/quiz/exit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, question: Math.min(index + 1, questionCount) }),
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { mustSubmit?: boolean } | null) => {
+        if (data?.mustSubmit && !overLimit && !submittedRef.current) {
+          setForcedSubmit(true);
+          void handleSubmit();
+        }
+      })
+      .catch(() => {
+        // Offline: the local count above still enforces the limit.
+      });
+  }
+
+  const { needsFullscreen } = useExamLockdown({
+    active: !submitting && !discarding,
+    onExit: handleExit,
+  });
+
+  // The question is hidden behind this whenever the candidate is not fully "in".
+  const lockdownBlocking = needsFullscreen || exitWarning !== null || forcedSubmit;
 
   // Only changes made this session are written back, so the blank
   // pre-hydration state can never overwrite recovered progress.
@@ -350,7 +406,7 @@ export function QuizRunner({
 
   // --- Keyboard shortcuts: A–D / 1–4 to answer ------------------------------
   useEffect(() => {
-    if (reviewing || submitting || leaving || !current) return;
+    if (reviewing || submitting || leaving || lockdownBlocking || !current) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -371,7 +427,7 @@ export function QuizRunner({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [current, handleSelect, leaving, reviewing, submitting]);
+  }, [current, handleSelect, leaving, lockdownBlocking, reviewing, submitting]);
 
   const unanswered = useMemo(
     () => questions.filter((question) => !(question.id in answers)),
@@ -412,6 +468,7 @@ export function QuizRunner({
       const resultId = data.result?.attemptId ?? attemptId;
 
       submittedRef.current = true;
+      exitFullscreen();
       restoredByAttempt.delete(attemptId);
       restoredClockByAttempt.delete(attemptId);
       try {
@@ -445,6 +502,7 @@ export function QuizRunner({
       }
 
       submittedRef.current = true;
+      exitFullscreen();
       restoredByAttempt.delete(attemptId);
       restoredClockByAttempt.delete(attemptId);
       try {
@@ -480,7 +538,23 @@ export function QuizRunner({
         </div>
       }
     >
-      {inFinalSeconds ? <div className="time-warning" aria-hidden="true" /> : null}
+      {inFinalSeconds && !lockdownBlocking ? (
+        <div className="time-warning" aria-hidden="true" />
+      ) : null}
+
+      {lockdownBlocking ? (
+        <LockdownOverlay
+          forced={forcedSubmit}
+          submitting={submitting}
+          warning={exitWarning}
+          needsFullscreen={needsFullscreen}
+          onReturn={() => {
+            enterFullscreen();
+            setExitWarning(null);
+          }}
+          onRetrySubmit={() => void handleSubmit()}
+        />
+      ) : null}
 
       {leaving ? (
         <ConfirmDialog
@@ -509,7 +583,7 @@ export function QuizRunner({
         </ConfirmDialog>
       ) : null}
 
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-3xl select-none">
         <ProgressHeader
           current={reviewing ? totalQuestions : index + 1}
           total={totalQuestions}
@@ -566,6 +640,116 @@ export function QuizRunner({
         </div>
       </div>
     </PageShell>
+  );
+}
+
+/**
+ * Covers the question whenever the candidate is not fully in the exam: out of
+ * fullscreen, just back from another tab or app, or being auto-submitted. The
+ * clock keeps running behind it — stepping away never buys time.
+ */
+function LockdownOverlay({
+  forced,
+  submitting,
+  warning,
+  needsFullscreen,
+  onReturn,
+  onRetrySubmit,
+}: {
+  forced: boolean;
+  submitting: boolean;
+  warning: number | null;
+  needsFullscreen: boolean;
+  onReturn: () => void;
+  onRetrySubmit: () => void;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    buttonRef.current?.focus();
+  }, [forced, warning, needsFullscreen]);
+
+  const remaining = warning === null ? null : ALLOWED_EXAM_EXITS - warning;
+
+  let title: string;
+  let body: React.ReactNode;
+  if (forced && submitting) {
+    title = 'Submitting your exam';
+    body = 'You left the exam too many times, so it is being submitted with the answers you gave.';
+  } else if (forced) {
+    title = 'Your exam has to be submitted';
+    body =
+      'You left the exam too many times. Submitting did not go through — check your connection and try again.';
+  } else if (warning !== null) {
+    title = 'You left the exam';
+    body = (
+      <>
+        Switching tab, switching app or leaving fullscreen is not allowed, and the clock kept
+        running while you were away.{' '}
+        <span className="font-semibold text-white">
+          {remaining === 0
+            ? 'This was your last warning — leave again and your exam is submitted.'
+            : `${remaining} more ${remaining === 1 ? 'time' : 'times'} and your exam is submitted.`}
+        </span>
+      </>
+    );
+  } else {
+    title = 'Fullscreen required';
+    body =
+      'The exam runs in fullscreen. The clock is running, so head back in to keep answering.';
+  }
+
+  return (
+    <div className="confirm-backdrop fixed inset-0 z-60 grid place-items-center p-4">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="lockdown-title"
+        aria-describedby="lockdown-body"
+        className="confirm-dialog panel w-full max-w-md overflow-hidden"
+      >
+        <div aria-hidden="true" className="h-1 w-full bg-[linear-gradient(90deg,var(--color-ember),#d42440)]" />
+        <div className="p-6 text-center sm:p-7">
+          {warning !== null && !forced ? (
+            <div className="mx-auto mb-4 flex w-fit gap-1.5" aria-hidden="true">
+              {Array.from({ length: ALLOWED_EXAM_EXITS + 1 }, (_, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    'h-2 w-8 rounded-full',
+                    i < warning ? 'bg-[color:var(--color-ember)]' : 'bg-[rgba(143,208,255,0.18)]',
+                  )}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          <h2 id="lockdown-title" className="display text-xl font-black text-white">
+            {title}
+          </h2>
+          <p id="lockdown-body" className="mt-3 text-sm leading-relaxed text-[color:var(--color-mist)]">
+            {body}
+          </p>
+
+          <div className="mt-6">
+            {forced ? (
+              submitting ? (
+                <p className="flex justify-center text-sm text-[color:var(--color-mist)]">
+                  <Spinner label="Submitting…" />
+                </p>
+              ) : (
+                <button ref={buttonRef} type="button" className="btn btn-primary w-full" onClick={onRetrySubmit}>
+                  Try submitting again
+                </button>
+              )
+            ) : (
+              <button ref={buttonRef} type="button" className="btn btn-primary w-full" onClick={onReturn}>
+                {needsFullscreen ? 'Return to fullscreen' : 'Back to the exam'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -41,6 +41,7 @@ enforced on the server, with a printable "Endgame Encore" ticket for whoever cle
 | **Pass mark** | 25 / 40 |
 | **Attempts** | One per person **and one per device**, enforced server-side in a Firestore transaction |
 | **Timer** | 20 seconds per question, no going back; a time-out leaves the question blank |
+| **Lockdown** | Fullscreen exam; leaving the tab, app or fullscreen is detected and logged — the third time auto-submits. Copying is blocked. A web page cannot stop a second device. |
 | **Scoring** | Entirely server-side; the browser never receives the answer key |
 | **Reward** | A downloadable, printable ticket with a QR verification link |
 | **Admin** | Password-protected dashboard with stats, search, history, retakes and deleting submissions |

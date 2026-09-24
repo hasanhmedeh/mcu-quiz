@@ -8,6 +8,7 @@ import {
   usersCollection,
 } from '@/lib/firebase/collections';
 import {
+  ALLOWED_EXAM_EXITS,
   PASSING_SCORE,
   type AdminAttemptRow,
   type AdminDeviceRow,
@@ -44,6 +45,8 @@ function toRow(id: string, data: AttemptDocument): AdminAttemptRow {
     startedAt: data.startedAt,
     completedAt: data.completedAt,
     userAgent: data.userAgent,
+    exitCount: data.exits?.length ?? 0,
+    forcedSubmit: (data.exits?.length ?? 0) > ALLOWED_EXAM_EXITS,
   };
 }
 

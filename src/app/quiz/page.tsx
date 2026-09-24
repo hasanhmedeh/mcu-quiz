@@ -47,6 +47,7 @@ export default async function QuizPage() {
       totalQuestions={lookup.exam.totalQuestions}
       passingScore={PASSING_SCORE}
       questions={lookup.exam.questions}
+      initialExitCount={lookup.exam.exitCount}
     />
   );
 }

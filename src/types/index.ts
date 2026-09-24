@@ -24,6 +24,22 @@ export const PASSING_SCORE = 25;
 /** Each question gets this long; when it runs out the question is left blank. */
 export const QUESTION_TIME_SECONDS = 20;
 
+/**
+ * How many times someone may leave the exam (switch tab or app, leave
+ * fullscreen) and be let back in with a warning. The next time it is submitted.
+ */
+export const ALLOWED_EXAM_EXITS = 2;
+
+/** What pulled the candidate away from the exam. */
+export type ExamExitKind = 'tab_hidden' | 'window_blur' | 'fullscreen_exit';
+
+export interface ExamExit {
+  kind: ExamExitKind;
+  at: string;
+  /** Which question was on screen, 1-based. */
+  question: number;
+}
+
 /** A question as authored in the bank. Never sent to the browser as-is. */
 export interface QuizQuestion {
   /** Stable identifier, e.g. `e-014`. Changing it invalidates retake history. */
@@ -83,6 +99,8 @@ export interface AttemptDocument {
   userAgent: string | null;
   /** Which device this was taken on, for the one-attempt-per-device rule. */
   deviceId: string | null;
+  /** Every time the candidate left the exam. Absent on attempts from before this existed. */
+  exits?: ExamExit[];
 }
 
 export interface UserDocument {
@@ -145,6 +163,10 @@ export interface AdminAttemptRow {
   startedAt: string;
   completedAt: string | null;
   userAgent: string | null;
+  /** How many times they left the exam. */
+  exitCount: number;
+  /** True when leaving too often is what submitted it. */
+  forcedSubmit: boolean;
 }
 
 export interface AdminUserRow {

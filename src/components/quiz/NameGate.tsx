@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { NAME_MAX_LENGTH, validateName } from '@/lib/quiz/names';
 import { collectDeviceSignals } from '@/lib/device/signals';
 import { Alert, Spinner } from '@/components/ui/primitives';
+import { enterFullscreen, exitFullscreen } from './useExamLockdown';
 
 interface BlockedState {
   reason: 'already_completed' | 'in_use' | 'device_limit';
@@ -56,6 +57,10 @@ export function NameGate() {
 
     setSubmitting(true);
 
+    // The exam runs in fullscreen, and browsers only grant that from a click,
+    // so it is requested now. It is dropped again if no exam opens.
+    enterFullscreen();
+
     try {
       // Collected here rather than on page load so the work only happens for
       // someone who is actually starting an exam.
@@ -90,6 +95,7 @@ export function NameGate() {
           attemptId: data.attemptId,
           deviceOwnerName: data.deviceOwnerName ?? null,
         });
+        exitFullscreen();
         setSubmitting(false);
         return;
       }
@@ -97,6 +103,7 @@ export function NameGate() {
       if (!response.ok) {
         const data = payload as ApiError;
         setError(data?.error?.message ?? 'We could not start your exam. Please try again.');
+        exitFullscreen();
         setSubmitting(false);
         return;
       }
@@ -106,6 +113,7 @@ export function NameGate() {
       router.push('/quiz');
     } catch {
       setError('We could not reach the server. Check your connection and try again.');
+      exitFullscreen();
       setSubmitting(false);
     }
   }

@@ -714,7 +714,10 @@ function AttemptHistory({
                   {attempt.score === null ? '—' : `${attempt.score} / ${attempt.totalQuestions ?? totalQuestions}`}
                 </td>
                 <td className="py-2 pr-4">
-                  <StatusChip attempt={attempt} totalQuestions={totalQuestions} />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusChip attempt={attempt} totalQuestions={totalQuestions} />
+                    <ExitChip attempt={attempt} />
+                  </div>
                 </td>
                 <td className="py-2 pr-4 text-[color:var(--color-mist)]">
                   {formatDateTime(attempt.completedAt ?? attempt.startedAt)}
@@ -794,6 +797,19 @@ function DeleteSummary({
         <li className="font-semibold text-[color:var(--color-ember-soft)]">• This cannot be undone.</li>
       </ul>
     </>
+  );
+}
+
+/** How often they left the exam — and whether that is what ended it. */
+function ExitChip({ attempt }: { attempt: AdminAttemptRow }) {
+  if (attempt.exitCount === 0) return null;
+  return (
+    <span
+      className="chip chip-fail"
+      title="Times they switched tab or app, or left fullscreen, during the exam"
+    >
+      {attempt.forcedSubmit ? 'Auto-submitted · ' : ''}left {attempt.exitCount}×
+    </span>
   );
 }
 

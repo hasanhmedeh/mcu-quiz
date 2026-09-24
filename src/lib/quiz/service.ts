@@ -13,8 +13,10 @@ import {
 } from '@/lib/firebase/collections';
 import { QUESTION_BANK, QUESTION_BANK_BY_ID } from '@/data/questions';
 import {
+  ALLOWED_EXAM_EXITS,
   TOTAL_QUESTIONS,
   type AttemptDocument,
+  type ExamExitKind,
   type AttemptQuestionRecord,
   type AttemptResult,
   type ClientQuestion,
@@ -560,6 +562,53 @@ export async function submitExam(input: SubmitExamInput): Promise<AttemptResult>
   });
 }
 
+export interface RecordExitInput {
+  readonly attemptId: string;
+  readonly userId: string;
+  readonly kind: ExamExitKind;
+  readonly question: number;
+}
+
+export interface RecordExitResult {
+  readonly exitCount: number;
+  /** Past the allowance: the exam has to be submitted now. */
+  readonly mustSubmit: boolean;
+}
+
+/** Keeps a runaway client from growing an attempt document without bound. */
+const MAX_RECORDED_EXITS = 50;
+
+/**
+ * Logs that the candidate left the exam — switched tab or app, or left
+ * fullscreen. The log lives on the attempt, so the organiser sees it whether
+ * or not the browser went on to enforce anything.
+ */
+export async function recordExamExit(input: RecordExitInput): Promise<RecordExitResult> {
+  const db = getDb();
+  const attemptRef = attemptsCollection().doc(input.attemptId);
+
+  return db.runTransaction<RecordExitResult>(async (transaction) => {
+    const attempt = (await transaction.get(attemptRef)).data();
+    if (!attempt) throw new QuizError('attempt_not_found', 'Attempt does not exist.');
+    if (attempt.userId !== input.userId) {
+      throw new QuizError('invalid_session', 'Session does not match this attempt.');
+    }
+
+    const exits = attempt.exits ?? [];
+    if (attempt.status === 'completed' || exits.length >= MAX_RECORDED_EXITS) {
+      return { exitCount: exits.length, mustSubmit: exits.length > ALLOWED_EXAM_EXITS };
+    }
+
+    const next = [
+      ...exits,
+      { kind: input.kind, at: new Date().toISOString(), question: input.question },
+    ];
+    transaction.update(attemptRef, { exits: next });
+
+    return { exitCount: next.length, mustSubmit: next.length > ALLOWED_EXAM_EXITS };
+  });
+}
+
 export interface DiscardExamInput {
   readonly attemptId: string;
   readonly userId: string;
@@ -696,6 +745,8 @@ export interface ActiveExam {
   readonly attemptNumber: number;
   readonly totalQuestions: number;
   readonly questions: ClientQuestion[];
+  /** Times already spent away, so a reload does not reset the warnings. */
+  readonly exitCount: number;
 }
 
 export type ActiveExamLookup =
@@ -731,6 +782,7 @@ export async function getActiveExam(
       attemptNumber: attempt.attemptNumber,
       totalQuestions: attempt.totalQuestions,
       questions,
+      exitCount: attempt.exits?.length ?? 0,
     },
   };
 }
