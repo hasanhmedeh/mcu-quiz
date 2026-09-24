@@ -73,6 +73,51 @@ const NO_ANSWERS: Answers = {};
 const restoredByAttempt = new Map<string, Answers>();
 const restoredClockByAttempt = new Map<string, Clock | null>();
 
+/**
+ * Where to send anyone who comes back to an exam that has been submitted or
+ * discarded — keyed by attempt, kept in memory and in sessionStorage.
+ *
+ * The server already refuses a closed exam, but Back and Forward replay the
+ * page from the router's cache (or the browser's back-forward cache) without
+ * asking it. This marker is what turns that replay straight back round.
+ */
+const closedByAttempt = new Map<string, string>();
+
+function closedKey(attemptId: string): string {
+  return `mcu-quiz:closed:${attemptId}`;
+}
+
+function readClosedDestination(attemptId: string): string | null {
+  const cached = closedByAttempt.get(attemptId);
+  if (cached) return cached;
+  try {
+    const stored = window.sessionStorage.getItem(closedKey(attemptId));
+    // Only same-site paths, so a tampered value cannot redirect elsewhere.
+    return stored && stored.startsWith('/') && !stored.startsWith('//') ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function markClosed(attemptId: string, destination: string): void {
+  closedByAttempt.set(attemptId, destination);
+  try {
+    window.sessionStorage.setItem(closedKey(attemptId), destination);
+  } catch {
+    // The in-memory marker still covers Back within this page's lifetime.
+  }
+}
+
+/** A page restored from the back-forward cache fires `pageshow`, not a fresh load. */
+function subscribeToPageShow(onChange: () => void): () => void {
+  window.addEventListener('pageshow', onChange);
+  return () => window.removeEventListener('pageshow', onChange);
+}
+
+function serverClosedSnapshot(): string | null {
+  return null;
+}
+
 /** Answers survive an accidental refresh; they are never the source of truth for scoring. */
 function readSavedAnswers(attemptId: string, questions: ClientQuestion[]): Answers {
   const cached = restoredByAttempt.get(attemptId);
@@ -189,6 +234,18 @@ export function QuizRunner({
     serverClockSnapshot,
   );
 
+  const closedDestination = useSyncExternalStore(
+    subscribeToPageShow,
+    () => readClosedDestination(attemptId),
+    serverClosedSnapshot,
+  );
+
+  // Back into a finished exam: straight on to where it ended, replacing this
+  // history entry so Back cannot land here again.
+  useEffect(() => {
+    if (closedDestination) router.replace(closedDestination);
+  }, [closedDestination, router]);
+
   // `null` means "untouched this session", which is what lets the recovered
   // sheet and the recovered clock act as the defaults.
   const [edited, setEdited] = useState<Answers | null>(null);
@@ -268,7 +325,7 @@ export function QuizRunner({
   }
 
   const { needsFullscreen } = useExamLockdown({
-    active: !submitting && !discarding,
+    active: !submitting && !discarding && !closedDestination,
     onExit: handleExit,
   });
 
@@ -302,7 +359,7 @@ export function QuizRunner({
   // whose time has run out. The updater returns the same object when nothing
   // moved, so an idle tick only re-renders the countdown itself.
   useEffect(() => {
-    if (reviewing || submitting || discarding) return;
+    if (reviewing || submitting || discarding || closedDestination) return;
 
     const id = setInterval(() => {
       const tickAt = Date.now();
@@ -316,12 +373,14 @@ export function QuizRunner({
     }, TICK_MS);
 
     return () => clearInterval(id);
-  }, [discarding, questionCount, restoredClock, reviewing, submitting]);
+  }, [closedDestination, discarding, questionCount, restoredClock, reviewing, submitting]);
 
   // --- Leaving mid-exam ends it ---------------------------------------------
   // Clicking a link (the logo, say) or pressing Back asks first; confirming
   // submits whatever has been answered. Nothing navigates away silently.
   useEffect(() => {
+    if (closedDestination) return;
+
     function handleClick(event: MouseEvent) {
       if (submittedRef.current || event.defaultPrevented || event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -352,7 +411,7 @@ export function QuizRunner({
       window.removeEventListener('click', handleClick, true);
       window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [closedDestination]);
 
   // --- Warn before a reload or closing the tab -------------------------------
   useEffect(() => {
@@ -388,6 +447,16 @@ export function QuizRunner({
       if (advanceTimer.current || remainingMs <= 0) return;
 
       setEdited((previous) => ({ ...(previous ?? restored), [questionId]: optionIndex }));
+
+      // Recorded as it happens (for the organiser's live view, and so the
+      // server holds each answer as final). The submitted sheet still carries
+      // it, so a dropped request costs nothing.
+      void fetch('/api/quiz/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questionId, selectedIndex: optionIndex }),
+        keepalive: true,
+      }).catch(() => {});
 
       const answeredIndex = index;
 
@@ -478,7 +547,9 @@ export function QuizRunner({
         // Nothing to do — the attempt is already graded server-side.
       }
 
-      router.push(`/result/${resultId}`);
+      // Replace, not push: the exam's history entry becomes the result.
+      markClosed(attemptId, `/result/${resultId}`);
+      router.replace(`/result/${resultId}`);
     } catch {
       setError('We could not reach the server. Check your connection and try again.');
       setSubmitting(false);
@@ -512,12 +583,24 @@ export function QuizRunner({
         // The attempt is already gone server-side.
       }
 
+      markClosed(attemptId, '/');
       router.replace('/');
     } catch {
       setError('We could not reach the server. Check your connection and try again.');
       setLeaving(false);
       setDiscarding(false);
     }
+  }
+
+  // A closed exam never shows a question again, not even for a frame.
+  if (closedDestination) {
+    return (
+      <PageShell>
+        <div className="grid min-h-[40vh] place-items-center text-sm text-[color:var(--color-mist)]">
+          <Spinner label="This exam is closed. Taking you on…" />
+        </div>
+      </PageShell>
+    );
   }
 
   const progress = Math.round((Math.min(index, questionCount) / totalQuestions) * 100);

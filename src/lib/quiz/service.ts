@@ -478,7 +478,7 @@ export async function submitExam(input: SubmitExamInput): Promise<AttemptResult>
 
     const { score, passed, gradedRecords } = gradeAttempt(
       attempt.questions,
-      input.answers,
+      mergeAnswerSheets(attempt.questions, input.answers),
       QUESTION_BANK_BY_ID,
     );
 
@@ -560,6 +560,91 @@ export async function submitExam(input: SubmitExamInput): Promise<AttemptResult>
       attemptNumber: attempt.attemptNumber,
     };
   });
+}
+
+export interface RecordAnswerInput {
+  readonly attemptId: string;
+  readonly userId: string;
+  readonly questionId: string;
+  /** Index of the option as it was displayed. */
+  readonly selectedIndex: number;
+}
+
+export type RecordAnswerOutcome = 'recorded' | 'already_answered' | 'out_of_order';
+
+/**
+ * Stores one answer the moment it is picked, which is what the organiser's
+ * live view reads.
+ *
+ * It also makes the exam's rules hold on the server: the first answer to a
+ * question is final, and a question the candidate has moved past (answered a
+ * later one) can no longer be answered.
+ */
+export async function recordAnswer(input: RecordAnswerInput): Promise<RecordAnswerOutcome> {
+  const db = getDb();
+  const attemptRef = attemptsCollection().doc(input.attemptId);
+
+  return db.runTransaction<RecordAnswerOutcome>(async (transaction) => {
+    const attempt = (await transaction.get(attemptRef)).data();
+    if (!attempt) throw new QuizError('attempt_not_found', 'Attempt does not exist.');
+    if (attempt.userId !== input.userId) {
+      throw new QuizError('invalid_session', 'Session does not match this attempt.');
+    }
+    if (attempt.status === 'completed') {
+      throw new QuizError('invalid_session', 'This exam has already been submitted.');
+    }
+    if (new Date(attempt.expiresAt).getTime() < Date.now()) {
+      throw new QuizError('session_expired', 'This exam session has expired.');
+    }
+
+    const position = attempt.questions.findIndex((record) => record.questionId === input.questionId);
+    const record = attempt.questions[position];
+    if (!record) throw new QuizError('invalid_session', 'That question is not on this exam.');
+    if (
+      !Number.isInteger(input.selectedIndex) ||
+      input.selectedIndex < 0 ||
+      input.selectedIndex >= record.optionOrder.length
+    ) {
+      throw new QuizError('invalid_session', 'That option does not exist.');
+    }
+
+    if (record.selectedDisplayIndex !== null) return 'already_answered';
+    if (attempt.questions.slice(position + 1).some((later) => later.selectedDisplayIndex !== null)) {
+      return 'out_of_order';
+    }
+
+    const questions = attempt.questions.map((entry, index) =>
+      index === position ? { ...entry, selectedDisplayIndex: input.selectedIndex } : entry,
+    );
+    transaction.update(attemptRef, { questions });
+    return 'recorded';
+  });
+}
+
+/**
+ * The answer sheet to grade: what was recorded live wins, and the browser's
+ * sheet only fills questions that were never recorded — and only those after
+ * the last recorded one, since anything before it has been passed by.
+ */
+export function mergeAnswerSheets(
+  records: readonly AttemptQuestionRecord[],
+  submitted: ReadonlyMap<string, number>,
+): Map<string, number> {
+  let lastRecorded = -1;
+  records.forEach((record, index) => {
+    if (record.selectedDisplayIndex !== null) lastRecorded = index;
+  });
+
+  const merged = new Map<string, number>();
+  records.forEach((record, index) => {
+    if (record.selectedDisplayIndex !== null) {
+      merged.set(record.questionId, record.selectedDisplayIndex);
+      return;
+    }
+    const fromBrowser = submitted.get(record.questionId);
+    if (index > lastRecorded && fromBrowser !== undefined) merged.set(record.questionId, fromBrowser);
+  });
+  return merged;
 }
 
 export interface RecordExitInput {

@@ -777,3 +777,95 @@ describe('recordExamExit', () => {
     ).rejects.toMatchObject({ code: 'invalid_session' });
   });
 });
+
+describe('live answers', () => {
+  /** Display index of the right (or, with `wrong`, a wrong) option for question `n` of an attempt. */
+  function displayIndex(attemptId: string, n: number, wrong = false) {
+    const records = fakeDb().read(`attempts/${attemptId}`)?.questions as Array<{
+      questionId: string;
+      optionOrder: number[];
+    }>;
+    const record = records[n]!;
+    const correct = record.optionOrder.indexOf(QUESTION_BANK_BY_ID.get(record.questionId)!.correctIndex);
+    return { questionId: record.questionId, selectedIndex: wrong ? (correct + 1) % 4 : correct };
+  }
+
+  it('records each answer once, in order, and grades from what was recorded', async () => {
+    const { recordAnswer } = await import('@/lib/quiz/service');
+    const exam = (await start('Hasan', 'hasan')) as StartedLike;
+    const base = { attemptId: exam.attemptId, userId: exam.userId };
+
+    const q0 = displayIndex(exam.attemptId, 0);
+    const q2 = displayIndex(exam.attemptId, 2, true);
+    expect(await recordAnswer({ ...base, ...q0 })).toBe('recorded');
+    expect(await recordAnswer({ ...base, ...q0, selectedIndex: (q0.selectedIndex + 1) % 4 })).toBe(
+      'already_answered',
+    );
+    expect(await recordAnswer({ ...base, ...q2 })).toBe('recorded');
+    // Question 1 was passed by (timed out) once question 2 was answered.
+    expect(await recordAnswer({ ...base, ...displayIndex(exam.attemptId, 1) })).toBe('out_of_order');
+
+    // The browser's sheet claims question 1 right and question 2 right; neither counts.
+    const sheet = new Map<string, number>([
+      [q0.questionId, q0.selectedIndex],
+      [displayIndex(exam.attemptId, 1).questionId, displayIndex(exam.attemptId, 1).selectedIndex],
+      [q2.questionId, displayIndex(exam.attemptId, 2).selectedIndex],
+    ]);
+    const result = await submitExam({ ...base, answers: sheet });
+    expect(result.score).toBe(1);
+  });
+
+  it('lets the browser sheet fill answers that never reached the server', async () => {
+    const exam = (await start('Hasan', 'hasan')) as StartedLike;
+    const result = await submitExam({
+      attemptId: exam.attemptId,
+      userId: exam.userId,
+      answers: answerSheet(exam.attemptId, 30),
+    });
+    expect(result.score).toBe(30);
+  });
+
+  it('builds the live view with the right answer beside every miss', async () => {
+    const { recordAnswer } = await import('@/lib/quiz/service');
+    const { buildLiveAttempts } = await import('@/lib/admin/service');
+    const exam = (await start('Hasan', 'hasan')) as StartedLike;
+    const base = { attemptId: exam.attemptId, userId: exam.userId };
+
+    await recordAnswer({ ...base, ...displayIndex(exam.attemptId, 0) });
+    await recordAnswer({ ...base, ...displayIndex(exam.attemptId, 1, true) });
+    await recordAnswer({ ...base, ...displayIndex(exam.attemptId, 3) }); // question 2 timed out
+
+    const data = fakeDb().read(`attempts/${exam.attemptId}`) as never;
+    const [live] = buildLiveAttempts([{ id: exam.attemptId, data }], Date.now());
+
+    expect(live).toMatchObject({ status: 'in_progress', seen: 4, correct: 2, wrong: 2, expectedScore: 20 });
+    expect(live!.questions.slice(0, 5).map((q) => q.state)).toEqual([
+      'answered',
+      'answered',
+      'timed_out',
+      'answered',
+      'pending',
+    ]);
+    const miss = live!.questions[1]!;
+    expect(miss.selectedIndex).not.toBe(miss.correctIndex);
+    expect(miss.options[miss.correctIndex]).toBe(
+      QUESTION_BANK_BY_ID.get(displayIndex(exam.attemptId, 1).questionId)!.options[
+        QUESTION_BANK_BY_ID.get(displayIndex(exam.attemptId, 1).questionId)!.correctIndex
+      ],
+    );
+  });
+
+  it('keeps finished exams for an hour, and drops expired unfinished ones', async () => {
+    const { buildLiveAttempts } = await import('@/lib/admin/service');
+    const done = await completeExam('Hasan', 'hasan', 30);
+    const data = fakeDb().read(`attempts/${done.attemptId}`) as never;
+
+    expect(buildLiveAttempts([{ id: done.attemptId, data }], Date.now())[0]).toMatchObject({
+      status: 'completed',
+      expectedScore: 30,
+      correct: 30,
+      wrong: 10,
+    });
+    expect(buildLiveAttempts([{ id: done.attemptId, data }], Date.now() + 2 * 60 * 60 * 1000)).toEqual([]);
+  });
+});

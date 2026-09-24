@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Alert, PageShell, SectionLabel, Spinner } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { cn } from '@/lib/cn';
@@ -265,6 +266,10 @@ export function AdminDashboard({
       headerRight={
         <div className="flex items-center gap-3">
           {isRefreshing ? <Spinner /> : null}
+          <Link href="/admin/live" className="btn btn-primary min-h-0 px-4 py-2 text-sm">
+            <span aria-hidden="true" className="live-dot mr-2 inline-block h-2 w-2 rounded-full bg-white" />
+            Live view
+          </Link>
           <button type="button" className="btn btn-ghost min-h-0 px-4 py-2 text-sm" onClick={handleSignOut}>
             Sign out
           </button>

@@ -381,6 +381,29 @@
   }
 }
 
+/* Live view: a pulsing "on air" dot, and a striped square for a timed-out question. */
+.live-dot {
+  animation: live-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes live-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.live-timeout {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255, 59, 74, 0.55) 0 3px,
+    rgba(255, 59, 74, 0.15) 3px 6px
+  );
+}
+
 /* Confirmation dialog: dimmed, blurred backdrop and a short scale-in. */
 .confirm-backdrop {
   background: rgba(4, 5, 14, 0.72);

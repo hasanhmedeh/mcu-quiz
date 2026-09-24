@@ -194,6 +194,49 @@ export interface AdminStats {
   averageScore: number | null;
 }
 
+/**
+ * One question of an exam as the organiser's live view shows it. Carries the
+ * answer key, so it is only ever sent to an authenticated admin.
+ */
+export interface LiveQuestion {
+  /** 1-based position in the exam. */
+  number: number;
+  prompt: string;
+  difficulty: Difficulty;
+  /** In the order the candidate saw them. */
+  options: string[];
+  /** Display index they picked; null when not answered (yet, or ever). */
+  selectedIndex: number | null;
+  /** Display index of the right answer. */
+  correctIndex: number;
+  /**
+   * `answered` — picked something; `timed_out` — passed without an answer;
+   * `pending` — not reached yet.
+   */
+  state: 'answered' | 'timed_out' | 'pending';
+}
+
+export interface LiveAttempt {
+  id: string;
+  displayName: string;
+  attemptNumber: number;
+  status: AttemptStatus;
+  startedAt: string;
+  completedAt: string | null;
+  totalQuestions: number;
+  /** Questions reached so far: answered or timed out. */
+  seen: number;
+  correct: number;
+  wrong: number;
+  /**
+   * Where they are heading: accuracy so far applied to the whole exam. Null
+   * until they have seen a question. The final score once submitted.
+   */
+  expectedScore: number | null;
+  exitCount: number;
+  questions: LiveQuestion[];
+}
+
 /** Public result payload rendered on the result screen. */
 export interface AttemptResult {
   attemptId: string;

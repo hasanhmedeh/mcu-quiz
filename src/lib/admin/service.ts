@@ -15,7 +15,10 @@ import {
   type AdminStats,
   type AdminUserRow,
   type AttemptDocument,
+  type LiveAttempt,
+  type LiveQuestion,
 } from '@/types';
+import { QUESTION_BANK_BY_ID } from '@/data/questions';
 
 /** Plenty for a group of friends, and it keeps the dashboard to a few queries. */
 const MAX_ATTEMPTS_FETCHED = 1000;
@@ -200,6 +203,97 @@ export async function releaseDevice(deviceId: string): Promise<ReleaseDeviceResu
 
     return { ok: true, deviceId };
   });
+}
+
+/** How many of the newest attempts the live view watches. */
+export const LIVE_ATTEMPT_LIMIT = 30;
+
+/** A finished exam stays on the live view this long, so the ending is visible. */
+export const LIVE_COMPLETED_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * One attempt as the live view shows it, answer key included.
+ *
+ * Because the exam only moves forward, every unanswered question before the
+ * furthest answered one was passed by — it timed out. That is what makes the
+ * running accuracy (and so the expected score) honest mid-exam.
+ */
+export function toLiveAttempt(id: string, attempt: AttemptDocument): LiveAttempt {
+  const records = attempt.questions;
+  const completed = attempt.status === 'completed';
+
+  let furthest = -1;
+  records.forEach((record, index) => {
+    if (record.selectedDisplayIndex !== null) furthest = index;
+  });
+
+  let correct = 0;
+  let wrong = 0;
+
+  const questions: LiveQuestion[] = records.map((record, index) => {
+    const question = QUESTION_BANK_BY_ID.get(record.questionId);
+    const correctIndex = question ? record.optionOrder.indexOf(question.correctIndex) : -1;
+    const selectedIndex = record.selectedDisplayIndex;
+
+    let state: LiveQuestion['state'];
+    if (selectedIndex !== null) state = 'answered';
+    else if (completed || index < furthest) state = 'timed_out';
+    else state = 'pending';
+
+    if (state === 'answered') {
+      if (selectedIndex === correctIndex) correct += 1;
+      else wrong += 1;
+    } else if (state === 'timed_out') {
+      wrong += 1;
+    }
+
+    return {
+      number: index + 1,
+      prompt: question?.prompt ?? 'Question no longer in the bank',
+      difficulty: record.difficulty,
+      options: question ? record.optionOrder.map((i) => question.options[i] ?? '') : [],
+      selectedIndex,
+      correctIndex,
+      state,
+    };
+  });
+
+  const seen = correct + wrong;
+  const expectedScore = completed
+    ? (attempt.score ?? correct)
+    : seen === 0
+      ? null
+      : Math.round((correct / seen) * attempt.totalQuestions);
+
+  return {
+    id,
+    displayName: attempt.displayName,
+    attemptNumber: attempt.attemptNumber,
+    status: attempt.status,
+    startedAt: attempt.startedAt,
+    completedAt: attempt.completedAt,
+    totalQuestions: attempt.totalQuestions,
+    seen,
+    correct: completed ? (attempt.score ?? correct) : correct,
+    wrong: completed ? attempt.totalQuestions - (attempt.score ?? correct) : wrong,
+    expectedScore,
+    exitCount: attempt.exits?.length ?? 0,
+    questions,
+  };
+}
+
+/** What the live view shows: exams under way, plus ones finished in the last hour. */
+export function buildLiveAttempts(
+  docs: ReadonlyArray<{ id: string; data: AttemptDocument }>,
+  now: number,
+): LiveAttempt[] {
+  return docs
+    .filter(({ data }) => {
+      if (data.status === 'in_progress') return new Date(data.expiresAt).getTime() > now;
+      const finishedAt = data.completedAt ? new Date(data.completedAt).getTime() : 0;
+      return now - finishedAt < LIVE_COMPLETED_WINDOW_MS;
+    })
+    .map(({ id, data }) => toLiveAttempt(id, data));
 }
 
 export type DeleteAttemptResult =
