@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { AdminNav, type LiveConnection } from './AdminNav';
 import { PageShell, SectionLabel } from '@/components/ui/primitives';
 import { cn } from '@/lib/cn';
 import type { LiveAttempt, LiveQuestion } from '@/types';
@@ -9,7 +9,7 @@ import { ProctorGallery } from './ProctorGallery';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D'] as const;
 
-type Connection = 'connecting' | 'live' | 'reconnecting' | 'failed';
+type Connection = LiveConnection;
 
 function formatTime(iso: string | null): string {
   if (!iso) return '—';
@@ -63,15 +63,7 @@ export function LiveMonitor({ passingScore }: { passingScore: number }) {
   return (
     <PageShell
       headerRight={
-        <div className="flex items-center gap-3">
-          <ConnectionChip connection={connection} />
-          <Link href="/admin/gallery" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
-            Gallery
-          </Link>
-          <Link href="/admin" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
-            Dashboard
-          </Link>
-        </div>
+        <AdminNav current="live" liveConnection={connection} />
       }
     >
       <div className="fade-up">
@@ -146,37 +138,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="display mb-3 text-xs tracking-[0.2em] text-[color:var(--color-mist)]">{title}</h2>
       <div className="grid gap-4 lg:grid-cols-2">{children}</div>
     </section>
-  );
-}
-
-function ConnectionChip({ connection }: { connection: Connection }) {
-  const label =
-    connection === 'live'
-      ? 'Live'
-      : connection === 'failed'
-        ? 'Feed stopped — reload'
-        : connection === 'reconnecting'
-          ? 'Reconnecting…'
-          : 'Connecting…';
-
-  return (
-    <span
-      className={cn(
-        'chip',
-        connection === 'live' ? 'chip-pass' : connection === 'failed' ? 'chip-fail' : 'chip-neutral',
-      )}
-      aria-live="polite"
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          'mr-1.5 inline-block h-2 w-2 rounded-full',
-          connection === 'live' ? 'live-dot bg-[#6ef2b0]' : 'bg-current opacity-70',
-        )}
-      />
-      {/* Just the dot on a phone, where the header is tight. */}
-      <span className="sr-only sm:not-sr-only">{label}</span>
-    </span>
   );
 }
 

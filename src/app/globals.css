@@ -381,6 +381,19 @@
   }
 }
 
+/* The Live view nav button on its own page: green while the feed is connected,
+   gold while it is (re)connecting. */
+.nav-live-on {
+  color: #d9ffe9;
+  border: 1px solid rgba(46, 204, 130, 0.55);
+  background: rgba(46, 204, 130, 0.16);
+  box-shadow: 0 10px 34px -12px rgba(46, 204, 130, 0.75);
+}
+
+.nav-live-waiting {
+  border-color: rgba(245, 197, 66, 0.5);
+}
+
 /* Live view: a pulsing "on air" dot, and a striped square for a timed-out question. */
 .live-dot {
   animation: live-dot 1.4s ease-in-out infinite;

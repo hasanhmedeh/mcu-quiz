@@ -78,7 +78,7 @@ export function PageShell({
 }) {
   return (
     <>
-      <header className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-5 sm:px-6">
+      <header className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-5 sm:px-6">
         <Link href="/" className="rounded-lg" aria-label="MCU Endgame Preparation Quiz — home">
           <Wordmark />
         </Link>

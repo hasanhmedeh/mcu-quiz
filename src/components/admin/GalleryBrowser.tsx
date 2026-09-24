@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { AdminNav } from './AdminNav';
 import { PageShell, SectionLabel, Spinner } from '@/components/ui/primitives';
 import { cn } from '@/lib/cn';
 import type { AdminSnapshot, SnapshotKind } from '@/types';
@@ -170,14 +170,7 @@ export function GalleryBrowser() {
   return (
     <PageShell
       headerRight={
-        <div className="flex items-center gap-2">
-          <Link href="/admin/live" className="btn btn-ghost min-h-0 px-3 py-2 text-sm">
-            Live
-          </Link>
-          <Link href="/admin" className="btn btn-ghost min-h-0 px-3 py-2 text-sm">
-            Dashboard
-          </Link>
-        </div>
+        <AdminNav current="gallery" />
       }
     >
       <div className="fade-up">
