@@ -353,3 +353,15 @@ describe('deleting a submission', () => {
     expect((await start('Someone Else', 'someone else', LAPTOP)).kind).toBe('started');
   });
 });
+
+describe('recognising the owner by device', () => {
+  it('shows a returning player their result on the device they used, without the owner cookie', async () => {
+    const result = await playThrough('Hasan', 'hasan', LAPTOP, 30);
+
+    const sameLaptop = await start('Hasan', 'hasan', LAPTOP);
+    const otherPhone = await start('Hasan', 'hasan', PHONE);
+
+    expect(sameLaptop).toMatchObject({ ownedByRequester: true, score: 30, attemptId: result.attemptId });
+    expect(otherPhone).toMatchObject({ ownedByRequester: false, score: null, attemptId: null });
+  });
+});

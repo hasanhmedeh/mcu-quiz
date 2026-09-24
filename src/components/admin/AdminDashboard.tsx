@@ -837,7 +837,12 @@ function UserStatusChip({ user }: { user: AdminUserRow }) {
     return <span className="chip chip-neutral text-[color:var(--color-gold)]">Retake granted</span>;
   }
   if (user.completedAttempts === 0) {
-    return <span className="chip chip-neutral">In progress</span>;
+    // No attempts at all means they discarded the only exam they opened.
+    return (
+      <span className="chip chip-neutral">
+        {user.attempts.length === 0 ? 'Not started' : 'In progress'}
+      </span>
+    );
   }
   const passedEver = user.attempts.some((attempt) => attempt.passed === true);
   return (

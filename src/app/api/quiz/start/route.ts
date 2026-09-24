@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import { validateName } from '@/lib/quiz/names';
 import { startExam, type DeviceIdentity } from '@/lib/quiz/service';
-import { readDeviceCookie, setDeviceCookie, setQuizSessionCookie } from '@/lib/auth/session';
+import {
+  addOwnedUserId,
+  readDeviceCookie,
+  readOwnedUserIds,
+  setDeviceCookie,
+  setQuizSessionCookie,
+} from '@/lib/auth/session';
+import { userIdForNormalizedName } from '@/lib/firebase/collections';
 import {
   deviceIdFromSignals,
   deviceSignalsSchema,
@@ -92,6 +99,7 @@ export async function POST(request: Request) {
       normalizedName: validation.normalizedName,
       userAgent: agent,
       device,
+      ownedUserIds: await readOwnedUserIds(),
     });
 
     // Remember the device either way — including when it was just blocked, so
@@ -99,12 +107,16 @@ export async function POST(request: Request) {
     if (device) await setDeviceCookie(device.primaryId);
 
     if (outcome.kind === 'blocked') {
+      // Someone recognised by their device alone gets the owner cookie too, so
+      // their result page opens for them from now on.
+      if (outcome.ownedByRequester) {
+        await addOwnedUserId(userIdForNormalizedName(validation.normalizedName));
+      }
+
       return ok(
         {
-          status:
-            outcome.reason === 'device_limit'
-              ? ('device_limit' as const)
-              : ('already_completed' as const),
+          status: outcome.reason,
+          private: !outcome.ownedByRequester,
           displayName: outcome.displayName,
           score: outcome.score,
           totalQuestions: outcome.totalQuestions ?? TOTAL_QUESTIONS,
@@ -120,6 +132,7 @@ export async function POST(request: Request) {
     }
 
     await setQuizSessionCookie({ attemptId: outcome.attemptId, userId: outcome.userId });
+    await addOwnedUserId(outcome.userId);
 
     return ok({
       status: 'started' as const,

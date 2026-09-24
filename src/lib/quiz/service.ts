@@ -59,9 +59,10 @@ export interface StartedExam {
  * Why someone was turned away.
  *
  * `already_completed` — this name has finished the exam.
+ * `in_use`            — this name has an exam open in another browser.
  * `device_limit`      — this machine has already been used, under another name.
  */
-export type BlockedReason = 'already_completed' | 'device_limit';
+export type BlockedReason = 'already_completed' | 'in_use' | 'device_limit';
 
 export interface BlockedExam {
   readonly kind: 'blocked';
@@ -76,6 +77,35 @@ export interface BlockedExam {
   readonly completedAttempts: number;
   /** For `device_limit`: who already played on this device. */
   readonly deviceOwnerName: string | null;
+  /**
+   * Whether the person asking is the one who took the exam. When false, the
+   * score, ticket and attempt id are withheld: knowing a name is not enough to
+   * see someone's result.
+   */
+  readonly ownedByRequester: boolean;
+}
+
+/** Who is asking to see an attempt. */
+export interface AttemptViewer {
+  /** From the signed owner cookie. */
+  readonly ownedUserIds: readonly string[];
+  /** Every device id this browser is known by. */
+  readonly deviceIds: readonly string[];
+  readonly isAdmin?: boolean;
+}
+
+/**
+ * An attempt belongs to the browser that took it: the one holding the owner
+ * cookie for that participant, or — for anyone who played before that cookie
+ * existed — the device it was taken on.
+ */
+export function isAttemptOwner(
+  attempt: Pick<AttemptDocument, 'userId' | 'deviceId'>,
+  viewer: AttemptViewer,
+): boolean {
+  if (viewer.isAdmin) return true;
+  if (viewer.ownedUserIds.includes(attempt.userId)) return true;
+  return attempt.deviceId !== null && viewer.deviceIds.includes(attempt.deviceId);
 }
 
 export type StartExamOutcome = StartedExam | BlockedExam;
@@ -155,6 +185,8 @@ export interface StartExamInput {
   readonly userAgent: string | null;
   /** Null when device locking is switched off or the browser sent nothing. */
   readonly device: DeviceIdentity | null;
+  /** Participants this browser has already played as (the owner cookie). */
+  readonly ownedUserIds?: readonly string[];
 }
 
 /**
@@ -199,6 +231,8 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
       deviceRecords.push({ ref, data: (await transaction.get(ref)).data() });
     }
 
+    const viewer: AttemptViewer = { ownedUserIds: input.ownedUserIds ?? [], deviceIds };
+
     // --- Resume an exam that is still open ------------------------------
     if (existing?.activeAttemptId && existing.activeAttemptExpiresAt) {
       const stillValid = new Date(existing.activeAttemptExpiresAt).getTime() > nowDate.getTime();
@@ -206,6 +240,25 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
         const activeRef = attempts.doc(existing.activeAttemptId);
         const activeSnapshot = await transaction.get(activeRef);
         const active = activeSnapshot.data();
+
+        // Only the browser that opened the exam may pick it up again —
+        // otherwise typing a friend's name would hand you their paper.
+        if (active && active.status === 'in_progress' && !isAttemptOwner(active, viewer)) {
+          return {
+            kind: 'blocked',
+            reason: 'in_use',
+            displayName: existing.displayName,
+            attemptId: null,
+            score: null,
+            totalQuestions: active.totalQuestions,
+            passed: null,
+            ticketId: null,
+            completedAt: null,
+            completedAttempts: existing.completedAttempts,
+            deviceOwnerName: null,
+            ownedByRequester: false,
+          };
+        }
 
         if (active && active.status === 'in_progress') {
           const questions = toClientQuestions(active.questions);
@@ -232,18 +285,21 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
         latest = latestSnapshot.data();
       }
 
+      const owner = latest !== undefined && isAttemptOwner(latest, viewer);
+
       return {
         kind: 'blocked',
         reason: 'already_completed',
         displayName: existing.displayName,
-        attemptId: existing.latestAttemptId,
-        score: latest?.score ?? existing.lastScore,
+        attemptId: owner ? existing.latestAttemptId : null,
+        score: owner ? (latest?.score ?? existing.lastScore) : null,
         totalQuestions: latest?.totalQuestions ?? TOTAL_QUESTIONS,
-        passed: latest?.passed ?? existing.lastPassed,
-        ticketId: latest?.ticketId ?? null,
-        completedAt: latest?.completedAt ?? null,
+        passed: owner ? (latest?.passed ?? existing.lastPassed) : null,
+        ticketId: owner ? (latest?.ticketId ?? null) : null,
+        completedAt: owner ? (latest?.completedAt ?? null) : null,
         completedAttempts: existing.completedAttempts,
         deviceOwnerName: null,
+        ownedByRequester: owner,
       };
     }
 
@@ -274,6 +330,7 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
         completedAt: null,
         completedAttempts: claimedElsewhere.data.completedAttempts,
         deviceOwnerName: claimedElsewhere.data.lastCompletedDisplayName,
+        ownedByRequester: false,
       };
     }
 
@@ -503,6 +560,52 @@ export async function submitExam(input: SubmitExamInput): Promise<AttemptResult>
   });
 }
 
+export interface DiscardExamInput {
+  readonly attemptId: string;
+  readonly userId: string;
+}
+
+/**
+ * Throws away an unfinished exam, as if it had never been opened.
+ *
+ * The attempt is deleted and the participant is free to start again — with a
+ * different paper, because the questions they saw stay on their used list. A
+ * granted retake that this exam consumed is handed back. A finished exam
+ * cannot be discarded.
+ */
+export async function discardExam(input: DiscardExamInput): Promise<void> {
+  const db = getDb();
+  const attemptRef = attemptsCollection().doc(input.attemptId);
+  const userRef = usersCollection().doc(input.userId);
+
+  await db.runTransaction(async (transaction) => {
+    const attempt = (await transaction.get(attemptRef)).data();
+    if (!attempt) throw new QuizError('attempt_not_found', 'Attempt does not exist.');
+    if (attempt.userId !== input.userId) {
+      throw new QuizError('invalid_session', 'Session does not match this attempt.');
+    }
+    if (attempt.status === 'completed') {
+      throw new QuizError('invalid_session', 'A submitted exam cannot be discarded.');
+    }
+
+    const user = (await transaction.get(userRef)).data();
+
+    transaction.delete(attemptRef);
+
+    if (user) {
+      transaction.update(userRef, {
+        updatedAt: new Date().toISOString(),
+        totalAttempts: Math.max(0, user.totalAttempts - 1),
+        activeAttemptId: user.activeAttemptId === input.attemptId ? null : user.activeAttemptId,
+        activeAttemptExpiresAt:
+          user.activeAttemptId === input.attemptId ? null : user.activeAttemptExpiresAt,
+        // Someone who has finished before only got this exam through a retake.
+        retakeAllowed: user.completedAttempts > 0 ? true : user.retakeAllowed,
+      });
+    }
+  });
+}
+
 export interface RegradeSummary {
   /** Completed attempts looked at. */
   readonly checked: number;
@@ -647,6 +750,36 @@ export async function getAttemptResult(attemptId: string): Promise<AttemptResult
     ticketId: attempt.ticketId,
     completedAt: attempt.completedAt ?? attempt.startedAt,
     attemptNumber: attempt.attemptNumber,
+  };
+}
+
+export type ViewableAttempt =
+  | { readonly status: 'ok'; readonly result: AttemptResult }
+  | { readonly status: 'forbidden' }
+  | { readonly status: 'missing' };
+
+/** The result page's lookup: the attempt, but only for the person who took it. */
+export async function getAttemptResultFor(
+  attemptId: string,
+  viewer: AttemptViewer,
+): Promise<ViewableAttempt> {
+  const snapshot = await attemptsCollection().doc(attemptId).get();
+  const attempt = snapshot.data();
+  if (!attempt || attempt.status !== 'completed') return { status: 'missing' };
+  if (!isAttemptOwner(attempt, viewer)) return { status: 'forbidden' };
+
+  return {
+    status: 'ok',
+    result: {
+      attemptId: snapshot.id,
+      displayName: attempt.displayName,
+      score: attempt.score ?? 0,
+      totalQuestions: attempt.totalQuestions,
+      passed: attempt.passed ?? false,
+      ticketId: attempt.ticketId,
+      completedAt: attempt.completedAt ?? attempt.startedAt,
+      attemptNumber: attempt.attemptNumber,
+    },
   };
 }
 

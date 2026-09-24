@@ -16,6 +16,10 @@ interface ConfirmDialogProps {
   busyLabel?: string;
   /** Which button gets focus (and Enter) when the dialog opens. Cancel is the safe default. */
   initialFocus?: 'cancel' | 'confirm';
+  /** Defaults to a bin for danger dialogs and a warning mark otherwise. */
+  icon?: 'trash' | 'warning';
+  /** An optional third choice, shown between Cancel and Confirm. */
+  secondaryAction?: { label: string; onClick: () => void };
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -35,6 +39,8 @@ export function ConfirmDialog({
   busy = false,
   busyLabel,
   initialFocus = 'cancel',
+  icon = tone === 'danger' ? 'trash' : 'warning',
+  secondaryAction,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -98,7 +104,10 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
-        className="confirm-dialog panel w-full max-w-md overflow-hidden"
+        className={cn(
+          'confirm-dialog panel w-full overflow-hidden',
+          secondaryAction ? 'max-w-xl' : 'max-w-md',
+        )}
       >
         <div
           aria-hidden="true"
@@ -122,7 +131,7 @@ export function ConfirmDialog({
               )}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                {tone === 'danger' ? (
+                {icon === 'trash' ? (
                   <>
                     <path d="M3 6h18" />
                     <path d="M8 6V4h8v2" />
@@ -158,6 +167,16 @@ export function ConfirmDialog({
             >
               {cancelLabel}
             </button>
+            {secondaryAction ? (
+              <button
+                type="button"
+                className="btn btn-ghost sm:min-w-32"
+                onClick={secondaryAction.onClick}
+                disabled={busy}
+              >
+                {secondaryAction.label}
+              </button>
+            ) : null}
             <button
               ref={confirmRef}
               type="button"

@@ -47,13 +47,18 @@ interface StartedLike {
   questions: ReadonlyArray<{ id: string; options: readonly string[] }>;
 }
 
-/** Device locking has its own suite; these tests exercise the name rules alone. */
-function start(name: string, normalized: string) {
+/**
+ * Device locking has its own suite; these tests exercise the name rules alone.
+ * By default the caller is the participant's own browser (it holds their owner
+ * cookie); pass `asStranger` for someone who merely typed the name.
+ */
+function start(name: string, normalized: string, asStranger = false) {
   return startExam({
     displayName: name,
     normalizedName: normalized,
     userAgent: 'vitest',
     device: null,
+    ownedUserIds: asStranger ? [] : [userIdForNormalizedName(normalized)],
   });
 }
 
@@ -155,6 +160,7 @@ describe('startExam', () => {
         normalizedName: normalized,
         userAgent: null,
         device: null,
+        ownedUserIds: [userIdForNormalizedName(normalized)],
       });
       expect(blocked.kind).toBe('blocked');
     }
@@ -618,5 +624,119 @@ describe('deleteAttempt', () => {
   it('reports a submission that is already gone', async () => {
     const { deleteAttempt } = await import('@/lib/admin/service');
     expect(await deleteAttempt('missing')).toEqual({ ok: false, error: 'attempt_not_found' });
+  });
+});
+
+describe('privacy between participants', () => {
+  it('does not show a stranger the score or ticket behind a name', async () => {
+    await completeExam('Hasan', 'hasan', 38);
+
+    const stranger = await start('Hasan', 'hasan', true);
+
+    expect(stranger).toMatchObject({
+      kind: 'blocked',
+      reason: 'already_completed',
+      ownedByRequester: false,
+      score: null,
+      passed: null,
+      ticketId: null,
+      attemptId: null,
+      completedAt: null,
+    });
+  });
+
+  it('still shows the owner their own result', async () => {
+    const result = await completeExam('Hasan', 'hasan', 38);
+
+    expect(await start('Hasan', 'hasan')).toMatchObject({
+      kind: 'blocked',
+      ownedByRequester: true,
+      score: 38,
+      passed: true,
+      ticketId: result.ticketId,
+      attemptId: result.attemptId,
+    });
+  });
+
+  it('does not hand a stranger someone else’s exam in progress', async () => {
+    const mine = (await start('Hasan', 'hasan')) as StartedLike;
+
+    const stranger = await start('Hasan', 'hasan', true);
+
+    expect(stranger).toMatchObject({ kind: 'blocked', reason: 'in_use', attemptId: null });
+    expect(JSON.stringify(stranger)).not.toContain(mine.attemptId);
+    expect(fakeDb().pathsIn('attempts')).toHaveLength(1);
+  });
+
+  it('opens a result page only for its owner, the device it was taken on, or the admin', async () => {
+    const { getAttemptResultFor } = await import('@/lib/quiz/service');
+    const result = await completeExam('Hasan', 'hasan', 38);
+    const userId = userIdForNormalizedName('hasan');
+
+    const stranger = await getAttemptResultFor(result.attemptId, { ownedUserIds: [], deviceIds: [] });
+    const owner = await getAttemptResultFor(result.attemptId, { ownedUserIds: [userId], deviceIds: [] });
+    const admin = await getAttemptResultFor(result.attemptId, {
+      ownedUserIds: [],
+      deviceIds: [],
+      isAdmin: true,
+    });
+
+    expect(stranger).toEqual({ status: 'forbidden' });
+    expect(owner).toMatchObject({ status: 'ok', result: { score: 38 } });
+    expect(admin).toMatchObject({ status: 'ok' });
+    expect(await getAttemptResultFor('nope', { ownedUserIds: [userId], deviceIds: [] })).toEqual({
+      status: 'missing',
+    });
+  });
+});
+
+describe('discardExam', () => {
+  it('throws away an open exam so the person can start again with a new paper', async () => {
+    const { discardExam } = await import('@/lib/quiz/service');
+    const first = (await start('Hasan', 'hasan')) as StartedLike;
+
+    await discardExam({ attemptId: first.attemptId, userId: first.userId });
+
+    expect(fakeDb().read(`attempts/${first.attemptId}`)).toBeUndefined();
+    expect(fakeDb().read(`users/${first.userId}`)).toMatchObject({
+      totalAttempts: 0,
+      completedAttempts: 0,
+      activeAttemptId: null,
+    });
+
+    const again = (await start('Hasan', 'hasan')) as StartedLike;
+    expect(again.kind).toBe('started');
+    expect(again.resumed).toBe(false);
+    expect(again.attemptId).not.toBe(first.attemptId);
+    const seen = new Set(first.questions.map((q) => q.id));
+    expect(again.questions.some((q) => seen.has(q.id))).toBe(false);
+  });
+
+  it('hands back a retake that the discarded exam used up', async () => {
+    const { discardExam } = await import('@/lib/quiz/service');
+    await completeExam('John Doe', 'john doe', 10);
+    const userId = userIdForNormalizedName('john doe');
+    await setRetakeAllowed(userId, true);
+    const retake = (await start('John Doe', 'john doe')) as StartedLike;
+
+    await discardExam({ attemptId: retake.attemptId, userId });
+
+    expect(fakeDb().read(`users/${userId}`)).toMatchObject({ retakeAllowed: true, completedAttempts: 1 });
+    expect((await start('John Doe', 'john doe')).kind).toBe('started');
+  });
+
+  it('refuses to discard a submitted exam or someone else’s', async () => {
+    const { discardExam } = await import('@/lib/quiz/service');
+    const done = await completeExam('Hasan', 'hasan', 30);
+    const open = (await start('Other', 'other')) as StartedLike;
+
+    await expect(
+      discardExam({ attemptId: done.attemptId, userId: userIdForNormalizedName('hasan') }),
+    ).rejects.toBeInstanceOf(QuizError);
+    await expect(
+      discardExam({ attemptId: open.attemptId, userId: userIdForNormalizedName('hasan') }),
+    ).rejects.toMatchObject({ code: 'invalid_session' });
+    expect(fakeDb().read(`attempts/${done.attemptId}`)).toBeDefined();
+    expect(fakeDb().read(`attempts/${open.attemptId}`)).toBeDefined();
   });
 });

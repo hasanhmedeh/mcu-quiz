@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getAttemptResult } from '@/lib/quiz/service';
+import { getAttemptResultFor, type ViewableAttempt } from '@/lib/quiz/service';
+import { isAdminAuthenticated, readDeviceCookie, readOwnedUserIds } from '@/lib/auth/session';
 import { renderQrDataUrl } from '@/lib/quiz/qr';
 import { getSiteOrigin } from '@/lib/siteUrl';
 import { FirebaseConfigError } from '@/lib/firebase/admin';
@@ -23,9 +24,14 @@ interface ResultPageProps {
 export default async function ResultPage({ params }: ResultPageProps) {
   const { attemptId } = await params;
 
-  let result: AttemptResult | null;
+  let lookup: ViewableAttempt;
   try {
-    result = await getAttemptResult(attemptId);
+    const deviceId = await readDeviceCookie();
+    lookup = await getAttemptResultFor(attemptId, {
+      ownedUserIds: await readOwnedUserIds(),
+      deviceIds: deviceId ? [deviceId] : [],
+      isAdmin: await isAdminAuthenticated(),
+    });
   } catch (error) {
     if (error instanceof FirebaseConfigError) {
       logServerError('result page: firebase not configured', error);
@@ -35,8 +41,10 @@ export default async function ResultPage({ params }: ResultPageProps) {
     return <ResultUnavailable />;
   }
 
-  if (!result) notFound();
+  if (lookup.status === 'missing') notFound();
+  if (lookup.status === 'forbidden') return <ResultPrivate />;
 
+  const { result } = lookup;
   if (!result.passed) return <FailResult result={result} />;
 
   const origin = await getSiteOrigin();
@@ -244,6 +252,29 @@ function ScoreDial({ score, total, passed }: { score: number; total: number; pas
         You scored {score} out of {total}. {passed ? 'You passed.' : 'You did not pass.'}
       </p>
     </div>
+  );
+}
+
+/** Someone else's result: nothing about it is shown, not even whose it is. */
+function ResultPrivate() {
+  return (
+    <PageShell>
+      <div className="mx-auto max-w-lg panel p-7 fade-up">
+        <SectionLabel>Private</SectionLabel>
+        <h1 className="display mt-3 text-2xl font-black text-white">This result is private</h1>
+        <p className="mt-3 text-sm leading-relaxed text-[color:var(--color-mist)]">
+          A result can only be opened on the phone or laptop the exam was taken on. If this is
+          yours, open the link there. Anyone checking a ticket can use the verification page
+          instead.
+        </p>
+        <Link href="/verify" className="btn btn-ghost mt-6 w-full">
+          Verify a ticket
+        </Link>
+        <Link href="/" className="btn btn-ghost mt-3 w-full">
+          Back to the start
+        </Link>
+      </div>
+    </PageShell>
   );
 }
 

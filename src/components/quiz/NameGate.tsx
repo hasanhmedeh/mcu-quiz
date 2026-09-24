@@ -8,7 +8,9 @@ import { collectDeviceSignals } from '@/lib/device/signals';
 import { Alert, Spinner } from '@/components/ui/primitives';
 
 interface BlockedState {
-  reason: 'already_completed' | 'device_limit';
+  reason: 'already_completed' | 'in_use' | 'device_limit';
+  /** True when the name belongs to someone else: no score, ticket or link is sent. */
+  private: boolean;
   displayName: string;
   score: number | null;
   totalQuestions: number;
@@ -75,7 +77,11 @@ export function NameGate() {
       if (response.status === 409) {
         const data = payload as BlockedState & { status?: string };
         setBlocked({
-          reason: data.status === 'device_limit' ? 'device_limit' : 'already_completed',
+          reason:
+            data.status === 'device_limit' || data.status === 'in_use'
+              ? data.status
+              : 'already_completed',
+          private: data.private === true,
           displayName: data.displayName,
           score: data.score,
           totalQuestions: data.totalQuestions,
@@ -105,11 +111,10 @@ export function NameGate() {
   }
 
   if (blocked) {
-    return blocked.reason === 'device_limit' ? (
-      <DeviceAlreadyUsed state={blocked} onReset={() => setBlocked(null)} />
-    ) : (
-      <AlreadyCompleted state={blocked} onReset={() => setBlocked(null)} />
-    );
+    const reset = () => setBlocked(null);
+    if (blocked.reason === 'device_limit') return <DeviceAlreadyUsed state={blocked} onReset={reset} />;
+    if (blocked.private) return <NameTaken state={blocked} onReset={reset} />;
+    return <AlreadyCompleted state={blocked} onReset={reset} />;
   }
 
   return (
@@ -186,6 +191,42 @@ function DeviceAlreadyUsed({ state, onReset }: { state: BlockedState; onReset: (
 
       <button type="button" onClick={onReset} className="btn btn-ghost w-full">
         Back
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The name is someone else's — or theirs, from another device. Either way the
+ * server sent nothing about the result, so there is nothing to show.
+ */
+function NameTaken({ state, onReset }: { state: BlockedState; onReset: () => void }) {
+  const inProgress = state.reason === 'in_use';
+
+  return (
+    <div className="space-y-5 fade-up">
+      <div className="rounded-xl border border-[rgba(245,197,66,0.35)] bg-[rgba(245,197,66,0.08)] p-5">
+        <p className="display text-sm tracking-[0.2em] text-[color:var(--color-gold)]">
+          Name already taken
+        </p>
+        <p className="mt-2 text-lg font-semibold text-white">
+          {inProgress
+            ? `${state.displayName} is taking the exam right now.`
+            : `${state.displayName} has already taken the exam.`}
+        </p>
+        <p className="mt-1 text-sm text-[color:var(--color-mist)]">
+          Results are private, so they only open on the phone or laptop the exam was taken on.
+        </p>
+      </div>
+
+      <Alert tone="info" title="Is this you?">
+        {inProgress
+          ? 'Carry on in the browser where you started. Switched devices? Ask Hasan to reset your attempt from the organiser dashboard.'
+          : 'Open the quiz on the device you used and enter your name there to see your result. Lost it? Ask Hasan.'}
+      </Alert>
+
+      <button type="button" onClick={onReset} className="btn btn-ghost w-full">
+        Try a different name
       </button>
     </div>
   );

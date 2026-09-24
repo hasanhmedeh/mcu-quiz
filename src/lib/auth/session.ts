@@ -7,6 +7,9 @@ import {
   ADMIN_SESSION_TTL_SECONDS,
   DEVICE_COOKIE,
   DEVICE_COOKIE_TTL_SECONDS,
+  MAX_OWNED_USER_IDS,
+  OWNER_COOKIE,
+  OWNER_COOKIE_TTL_SECONDS,
   QUIZ_COOKIE,
   QUIZ_SESSION_TTL_SECONDS,
 } from './sessionConfig';
@@ -78,6 +81,31 @@ export async function readDeviceCookie(): Promise<string | null> {
   const payload = verifyToken(store.get(DEVICE_COOKIE)?.value);
   if (!payload || payload.kind !== 'device') return null;
   return typeof payload.deviceId === 'string' ? payload.deviceId : null;
+}
+
+/** The participant ids this browser has taken the exam as, newest last. */
+export async function readOwnedUserIds(): Promise<string[]> {
+  const store = await cookies();
+  const payload = verifyToken(store.get(OWNER_COOKIE)?.value);
+  if (!payload || payload.kind !== 'owner' || typeof payload.userIds !== 'string') return [];
+  // Participant ids are hex digests, so a comma is a safe separator.
+  return payload.userIds.split(',').filter(Boolean);
+}
+
+/**
+ * Records that this browser is `userId`. Signed, so the list cannot be edited
+ * to claim someone else.
+ */
+export async function addOwnedUserId(userId: string): Promise<void> {
+  const existing = await readOwnedUserIds();
+  const userIds = [...existing.filter((id) => id !== userId), userId].slice(-MAX_OWNED_USER_IDS);
+
+  const store = await cookies();
+  const token = createToken({ kind: 'owner', userIds: userIds.join(',') }, OWNER_COOKIE_TTL_SECONDS);
+  store.set(OWNER_COOKIE, token, {
+    ...baseCookieOptions,
+    maxAge: OWNER_COOKIE_TTL_SECONDS,
+  });
 }
 
 /**

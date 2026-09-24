@@ -188,6 +188,7 @@ export function QuizRunner({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const stayInExam = useCallback(() => setLeaving(false), []);
 
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -245,7 +246,7 @@ export function QuizRunner({
   // whose time has run out. The updater returns the same object when nothing
   // moved, so an idle tick only re-renders the countdown itself.
   useEffect(() => {
-    if (reviewing || submitting) return;
+    if (reviewing || submitting || discarding) return;
 
     const id = setInterval(() => {
       const tickAt = Date.now();
@@ -259,7 +260,7 @@ export function QuizRunner({
     }, TICK_MS);
 
     return () => clearInterval(id);
-  }, [questionCount, restoredClock, reviewing, submitting]);
+  }, [discarding, questionCount, restoredClock, reviewing, submitting]);
 
   // --- Leaving mid-exam ends it ---------------------------------------------
   // Clicking a link (the logo, say) or pressing Back asks first; confirming
@@ -427,6 +428,40 @@ export function QuizRunner({
     }
   }
 
+  async function handleDiscard() {
+    if (discarding || submitting) return;
+    setDiscarding(true);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/quiz/discard', { method: 'POST' });
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as ApiError | null;
+        setError(data?.error?.message ?? 'We could not discard your exam. Please try again.');
+        setLeaving(false);
+        setDiscarding(false);
+        return;
+      }
+
+      submittedRef.current = true;
+      restoredByAttempt.delete(attemptId);
+      restoredClockByAttempt.delete(attemptId);
+      try {
+        window.sessionStorage.removeItem(storageKey(attemptId));
+        window.sessionStorage.removeItem(clockKey(attemptId));
+      } catch {
+        // The attempt is already gone server-side.
+      }
+
+      router.replace('/');
+    } catch {
+      setError('We could not reach the server. Check your connection and try again.');
+      setLeaving(false);
+      setDiscarding(false);
+    }
+  }
+
   const progress = Math.round((Math.min(index, questionCount) / totalQuestions) * 100);
 
   return (
@@ -450,16 +485,27 @@ export function QuizRunner({
       {leaving ? (
         <ConfirmDialog
           title="Leave the exam?"
+          icon="warning"
           cancelLabel="Keep going"
-          confirmLabel="Leave and submit"
+          confirmLabel="Submit and leave"
+          busy={discarding}
+          busyLabel="Discarding…"
+          secondaryAction={{ label: 'Discard exam', onClick: () => void handleDiscard() }}
           onCancel={stayInExam}
           onConfirm={() => {
             setLeaving(false);
             void handleSubmit();
           }}
         >
-          Leaving submits your exam now with the {answeredCount} of {totalQuestions} answers you
-          have given. Everything else counts as wrong, and you cannot come back to it.
+          <p>
+            <span className="font-semibold text-white">Submit and leave</span> grades the{' '}
+            {answeredCount} of {totalQuestions} answers you have given. Everything else counts as
+            wrong.
+          </p>
+          <p className="mt-2">
+            <span className="font-semibold text-white">Discard exam</span> throws this attempt
+            away without a score. You can start again later with a different set of questions.
+          </p>
         </ConfirmDialog>
       ) : null}
 
@@ -507,6 +553,17 @@ export function QuizRunner({
           {QUESTION_TIME_SECONDS} seconds per question, and no going back. Your answers are graded on
           the server when you submit — you will see the result then, not before.
         </p>
+
+        <div className="mt-3 text-center">
+          <button
+            type="button"
+            onClick={() => setLeaving(true)}
+            disabled={submitting || discarding}
+            className="rounded-lg px-3 py-1.5 text-xs font-semibold text-[color:var(--color-mist)] underline-offset-4 hover:text-white hover:underline disabled:opacity-40"
+          >
+            Leave exam
+          </button>
+        </div>
       </div>
     </PageShell>
   );
