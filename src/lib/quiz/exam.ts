@@ -148,7 +148,7 @@ export function gradeAttempt(
   return { score, passed: isPassing(score), gradedRecords };
 }
 
-/** 35/40 or better clears the bar. */
+/** 25/40 or better clears the bar. */
 export function isPassing(score: number, passMark: number = PASSING_SCORE): boolean {
   return score >= passMark;
 }

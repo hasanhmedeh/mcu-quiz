@@ -18,7 +18,7 @@ const displayFont = Orbitron({
 export const metadata: Metadata = {
   title: 'MCU Endgame Preparation Quiz',
   description:
-    'Forty questions on the Marvel Cinematic Universe, from Iron Man (2008) to Captain Marvel (2019). Score 35 to prove you are ready.',
+    'Forty questions on the Marvel Cinematic Universe, from Iron Man (2008) to Captain Marvel (2019). Score 25 to prove you are ready.',
   robots: { index: false, follow: false },
 };
 

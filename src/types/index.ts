@@ -19,7 +19,7 @@ export const EXAM_BLUEPRINT: Readonly<Record<Difficulty, number>> = {
 
 export const TOTAL_QUESTIONS = EXAM_BLUEPRINT.easy + EXAM_BLUEPRINT.medium + EXAM_BLUEPRINT.hard;
 
-export const PASSING_SCORE = 35;
+export const PASSING_SCORE = 25;
 
 /** A question as authored in the bank. Never sent to the browser as-is. */
 export interface QuizQuestion {

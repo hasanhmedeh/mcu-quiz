@@ -23,8 +23,15 @@ vi.mock('firebase-admin/firestore', async () => {
 
 const { QUESTION_BANK_BY_ID } = await import('@/data/questions');
 const { setRetakeAllowed } = await import('@/lib/admin/service');
-const { QuizError, getActiveExam, getAttemptResult, getTicket, startExam, submitExam } =
-  await import('@/lib/quiz/service');
+const {
+  QuizError,
+  getActiveExam,
+  getAttemptResult,
+  getTicket,
+  regradeCompletedAttempts,
+  startExam,
+  submitExam,
+} = await import('@/lib/quiz/service');
 const { userIdForNormalizedName } = await import('@/lib/firebase/collections');
 const { TICKET_PATTERN } = await import('@/lib/quiz/ticket');
 const { PASSING_SCORE, TOTAL_QUESTIONS } = await import('@/types');
@@ -209,17 +216,17 @@ describe('submitExam', () => {
   it('issues no ticket on a fail', async () => {
     const result = await completeExam('Hasan', 'hasan', PASSING_SCORE - 1);
 
-    expect(result.score).toBe(34);
+    expect(result.score).toBe(24);
     expect(result.passed).toBe(false);
     expect(result.ticketId).toBeNull();
     expect(fakeDb().pathsIn('tickets')).toHaveLength(0);
   });
 
-  it('draws the pass line at exactly 35', async () => {
-    const pass = await completeExam('Pass Case', 'pass case', 35);
+  it('draws the pass line at exactly 25', async () => {
+    const pass = await completeExam('Pass Case', 'pass case', 25);
     expect(pass.passed).toBe(true);
 
-    const fail = await completeExam('Fail Case', 'fail case', 34);
+    const fail = await completeExam('Fail Case', 'fail case', 24);
     expect(fail.passed).toBe(false);
   });
 
@@ -306,7 +313,7 @@ describe('submitExam', () => {
 
 describe('retakes', () => {
   it('lets the organiser reopen the exam without erasing history', async () => {
-    const first = await completeExam('John Doe', 'john doe', 31);
+    const first = await completeExam('John Doe', 'john doe', 21);
     expect(first.passed).toBe(false);
 
     const userId = userIdForNormalizedName('john doe');
@@ -334,7 +341,7 @@ describe('retakes', () => {
       .docsIn('attempts')
       .sort((a, b) => Number(a.attemptNumber) - Number(b.attemptNumber));
     expect(attempts).toHaveLength(2);
-    expect(attempts[0]).toMatchObject({ attemptNumber: 1, score: 31, passed: false });
+    expect(attempts[0]).toMatchObject({ attemptNumber: 1, score: 21, passed: false });
     expect(attempts[1]).toMatchObject({ attemptNumber: 2, score: 37, passed: true });
   });
 
@@ -519,5 +526,50 @@ describe('fake Firestore', () => {
     });
 
     expect(db.read('users/u')).toEqual({ completedAttempts: 2 });
+  });
+});
+
+describe('regradeCompletedAttempts', () => {
+  /** Rewrites a finished attempt as if it had been graded under a stricter mark. */
+  function markAsFailed(attemptId: string, userId: string) {
+    const db = fakeDb();
+    db.seed(`attempts/${attemptId}`, { ...db.read(`attempts/${attemptId}`), passed: false, ticketId: null });
+    db.seed(`users/${userId}`, { ...db.read(`users/${userId}`), lastPassed: false });
+    for (const path of db.pathsIn('tickets')) db.store.delete(path);
+  }
+
+  it('passes old attempts that clear the current mark and issues their tickets', async () => {
+    const result = await completeExam('Old Fail', 'old fail', PASSING_SCORE + 3);
+    const userId = userIdForNormalizedName('old fail');
+    markAsFailed(result.attemptId, userId);
+
+    const summary = await regradeCompletedAttempts();
+
+    expect(summary.checked).toBe(1);
+    expect(summary.promoted).toHaveLength(1);
+    const { ticketId } = summary.promoted[0]!;
+    expect(ticketId).toMatch(TICKET_PATTERN);
+
+    expect(fakeDb().read(`attempts/${result.attemptId}`)).toMatchObject({ passed: true, ticketId });
+    expect(fakeDb().read(`users/${userId}`)).toMatchObject({ lastPassed: true });
+    expect(await getTicket(ticketId)).toMatchObject({
+      attemptId: result.attemptId,
+      displayName: 'Old Fail',
+      score: PASSING_SCORE + 3,
+    });
+  });
+
+  it('leaves genuine fails and existing passes alone, and is safe to re-run', async () => {
+    const fail = await completeExam('Still Fail', 'still fail', PASSING_SCORE - 1);
+    const pass = await completeExam('Already Pass', 'already pass', 40);
+
+    const first = await regradeCompletedAttempts();
+    const second = await regradeCompletedAttempts();
+
+    expect(first).toEqual({ checked: 2, promoted: [] });
+    expect(second).toEqual({ checked: 2, promoted: [] });
+    expect(fakeDb().read(`attempts/${fail.attemptId}`)).toMatchObject({ passed: false, ticketId: null });
+    expect(fakeDb().read(`attempts/${pass.attemptId}`)).toMatchObject({ passed: true, ticketId: pass.ticketId });
+    expect(fakeDb().pathsIn('tickets')).toHaveLength(1);
   });
 });

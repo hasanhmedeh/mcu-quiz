@@ -20,7 +20,7 @@ import {
   type ClientQuestion,
   type UserDocument,
 } from '@/types';
-import { buildExam, gradeAttempt } from './exam';
+import { buildExam, gradeAttempt, isPassing } from './exam';
 import { generateTicketId } from './ticket';
 import { QUIZ_SESSION_TTL_SECONDS } from '@/lib/auth/sessionConfig';
 
@@ -501,6 +501,90 @@ export async function submitExam(input: SubmitExamInput): Promise<AttemptResult>
       attemptNumber: attempt.attemptNumber,
     };
   });
+}
+
+export interface RegradeSummary {
+  /** Completed attempts looked at. */
+  readonly checked: number;
+  /** Attempts that now clear the pass mark and were given a ticket. */
+  readonly promoted: ReadonlyArray<{ attemptId: string; displayName: string; ticketId: string }>;
+}
+
+/**
+ * Re-applies the current pass mark to every completed attempt.
+ *
+ * Only ever promotes: an attempt that failed but now clears the bar is marked
+ * passed and issued a ticket, exactly as if it had passed on submission.
+ * Tickets already handed out are never revoked, so raising the mark later
+ * leaves past passes standing. Safe to run repeatedly.
+ */
+export async function regradeCompletedAttempts(): Promise<RegradeSummary> {
+  const db = getDb();
+  const attempts = attemptsCollection();
+  const users = usersCollection();
+  const tickets = ticketsCollection();
+
+  const snapshot = await attempts.get();
+  const candidates = snapshot.docs.filter((doc) => {
+    const attempt = doc.data();
+    return (
+      attempt.status === 'completed' &&
+      attempt.passed !== true &&
+      attempt.score !== null &&
+      isPassing(attempt.score)
+    );
+  });
+
+  const promoted: Array<{ attemptId: string; displayName: string; ticketId: string }> = [];
+
+  for (const candidate of candidates) {
+    const attemptRef = attempts.doc(candidate.id);
+
+    const result = await db.runTransaction(async (transaction) => {
+      const attempt = (await transaction.get(attemptRef)).data();
+      // Re-checked inside the transaction in case a concurrent run got here first.
+      if (!attempt || attempt.passed === true || attempt.score === null || !isPassing(attempt.score)) {
+        return null;
+      }
+
+      const userRef = users.doc(attempt.userId);
+      const user = (await transaction.get(userRef)).data();
+
+      let ticketId: string | null = null;
+      for (let i = 0; i < MAX_TICKET_GENERATION_ATTEMPTS; i += 1) {
+        const id = generateTicketId();
+        if (!(await transaction.get(tickets.doc(id))).exists) {
+          ticketId = id;
+          break;
+        }
+      }
+      if (!ticketId) throw new QuizError('invalid_session', 'Could not allocate a ticket id.');
+
+      transaction.update(attemptRef, { passed: true, ticketId });
+
+      if (user && user.latestAttemptId === candidate.id) {
+        transaction.update(userRef, { lastPassed: true });
+      }
+
+      const ticket: TicketDocument = {
+        ticketId,
+        attemptId: candidate.id,
+        userId: attempt.userId,
+        displayName: attempt.displayName,
+        score: attempt.score,
+        totalQuestions: attempt.totalQuestions,
+        issuedAt: new Date().toISOString(),
+      };
+      transaction.set(tickets.doc(ticketId), ticket);
+
+      return { attemptId: candidate.id, displayName: attempt.displayName, ticketId };
+    });
+
+    if (result) promoted.push(result);
+  }
+
+  const checked = snapshot.docs.filter((doc) => doc.data().status === 'completed').length;
+  return { checked, promoted };
 }
 
 export interface ActiveExam {

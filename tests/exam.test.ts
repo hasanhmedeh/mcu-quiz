@@ -264,10 +264,10 @@ describe('gradeAttempt', () => {
 });
 
 describe('isPassing', () => {
-  it('draws the line at 35 out of 40', () => {
-    expect(PASSING_SCORE).toBe(35);
-    expect(isPassing(34)).toBe(false);
-    expect(isPassing(35)).toBe(true);
+  it('draws the line at 25 out of 40', () => {
+    expect(PASSING_SCORE).toBe(25);
+    expect(isPassing(24)).toBe(false);
+    expect(isPassing(25)).toBe(true);
     expect(isPassing(36)).toBe(true);
     expect(isPassing(40)).toBe(true);
     expect(isPassing(0)).toBe(false);

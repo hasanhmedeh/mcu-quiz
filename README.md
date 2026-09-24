@@ -38,7 +38,7 @@ enforced on the server, with a printable "Endgame Encore" ticket for whoever cle
 | | |
 | --- | --- |
 | **Exam** | 40 questions — 20 easy, 15 medium, 5 hard |
-| **Pass mark** | 35 / 40 |
+| **Pass mark** | 25 / 40 |
 | **Attempts** | One per person **and one per device**, enforced server-side in a Firestore transaction |
 | **Timer** | None — this tests knowledge, not speed |
 | **Scoring** | Entirely server-side; the browser never receives the answer key |

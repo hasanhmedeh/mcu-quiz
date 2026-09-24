@@ -73,6 +73,7 @@ export function AdminDashboard({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
   const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null);
+  const [regrading, setRegrading] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const [isRefreshing, startTransition] = useTransition();
 
@@ -171,6 +172,40 @@ export function AdminDashboard({
     }
   }
 
+  async function handleRegrade() {
+    setRegrading(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch('/api/admin/regrade', { method: 'POST' });
+      const body = (await response.json().catch(() => null)) as
+        | { checked?: number; promoted?: Array<{ displayName: string }>; error?: { message?: string } }
+        | null;
+
+      if (!response.ok) {
+        setNotice({
+          tone: 'error',
+          text: body?.error?.message ?? 'The re-grade did not go through. Please try again.',
+        });
+        return;
+      }
+
+      const promoted = body?.promoted ?? [];
+      setNotice({
+        tone: 'info',
+        text:
+          promoted.length === 0
+            ? `Checked ${body?.checked ?? 0} completed attempts — nobody needed updating.`
+            : `${promoted.length} attempt${promoted.length === 1 ? '' : 's'} now pass${promoted.length === 1 ? 'es' : ''} and got a ticket: ${promoted.map((p) => p.displayName).join(', ')}.`,
+      });
+      startTransition(() => router.refresh());
+    } catch {
+      setNotice({ tone: 'error', text: 'We could not reach the server. Please try again.' });
+    } finally {
+      setRegrading(false);
+    }
+  }
+
   async function handleSignOut() {
     await fetch('/api/admin/logout', { method: 'POST' }).catch(() => null);
     router.refresh();
@@ -196,6 +231,15 @@ export function AdminDashboard({
           Pass mark is {passingScore} / {totalQuestions}. Granting a retake keeps every previous
           attempt on record.
         </p>
+        <button
+          type="button"
+          onClick={handleRegrade}
+          disabled={regrading}
+          title="Mark past attempts that clear the current pass mark as passed and issue their tickets"
+          className="mt-3 rounded-lg border border-[rgba(62,166,255,0.45)] bg-[rgba(62,166,255,0.14)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40"
+        >
+          {regrading ? 'Re-grading…' : `Re-grade past attempts at ${passingScore} / ${totalQuestions}`}
+        </button>
       </div>
 
       {/* ---------------- Statistics ---------------- */}
