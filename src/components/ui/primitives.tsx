@@ -71,21 +71,25 @@ export function PageShell({
   children,
   footer,
   headerRight,
+  wide = false,
 }: {
   children: React.ReactNode;
   footer?: React.ReactNode;
   headerRight?: React.ReactNode;
+  /** Wider content column, for pages laid out in several columns. */
+  wide?: boolean;
 }) {
+  const width = wide ? 'max-w-7xl' : 'max-w-5xl';
   return (
     <>
-      <header className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-5 sm:px-6">
+      <header className={cn('mx-auto flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-5 sm:px-6', width)}>
         <Link href="/" className="rounded-lg" aria-label="MCU Endgame Preparation Quiz — home">
           <Wordmark />
         </Link>
         {headerRight}
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-16 sm:px-6">{children}</main>
-      <footer className="mx-auto w-full max-w-5xl px-4 pb-8 text-xs text-[color:var(--color-mist)]/70 sm:px-6">
+      <main className={cn('mx-auto w-full flex-1 px-4 pb-16 sm:px-6', width)}>{children}</main>
+      <footer className={cn('mx-auto w-full px-4 pb-8 text-xs text-[color:var(--color-mist)]/70 sm:px-6', width)}>
         {footer ?? (
           <p>
             An unofficial fan-made quiz. Not affiliated with, endorsed by, or connected to Marvel

@@ -24,6 +24,7 @@ service cloud.firestore {
     // tickets      — issued certifications
     // devices      — one-attempt-per-device records (digest only, no raw signals)
     // rateLimits   — fixed-window counters for the login and start endpoints
+    // settings     — organiser settings, e.g. the /timeline page order
     //
     // None of these are client-accessible.
     match /{document=**} {

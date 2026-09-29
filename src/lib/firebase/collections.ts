@@ -4,11 +4,13 @@ import { createHash } from 'node:crypto';
 import type {
   CollectionReference,
   DocumentData,
+  DocumentReference,
   FirestoreDataConverter,
   QueryDocumentSnapshot,
   WithFieldValue,
 } from 'firebase-admin/firestore';
 import type { AttemptDocument, SnapshotDocument, UserDocument } from '@/types';
+import type { TimelineOrder } from '@/lib/timeline/order';
 import { getDb } from './admin';
 
 export const COLLECTIONS = {
@@ -17,7 +19,14 @@ export const COLLECTIONS = {
   tickets: 'tickets',
   devices: 'devices',
   snapshots: 'snapshots',
+  settings: 'settings',
 } as const;
+
+/** settings/timeline — the organiser's order for the /timeline page. */
+export interface TimelineOrderDocument {
+  flows: TimelineOrder;
+  updatedAt: string;
+}
 
 /**
  * One record per recognised device.
@@ -80,6 +89,13 @@ export function snapshotsCollection(): CollectionReference<SnapshotDocument> {
 
 export function devicesCollection(): CollectionReference<DeviceDocument> {
   return getDb().collection(COLLECTIONS.devices).withConverter(converter<DeviceDocument>());
+}
+
+export function timelineOrderDoc(): DocumentReference<TimelineOrderDocument> {
+  return getDb()
+    .collection(COLLECTIONS.settings)
+    .doc('timeline')
+    .withConverter(converter<TimelineOrderDocument>());
 }
 
 /**

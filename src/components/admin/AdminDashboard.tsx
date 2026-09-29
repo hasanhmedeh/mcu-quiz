@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { AdminNav } from './AdminNav';
+import { EmptyState, StatCard } from './parts';
 import { Alert, PageShell, SectionLabel } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ProctorGallery } from './ProctorGallery';
@@ -1052,32 +1053,6 @@ function StatusChip({
   );
 }
 
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: 'pass' | 'fail';
-}) {
-  return (
-    <div className="stat-card">
-      <dt className="text-[0.625rem] uppercase tracking-[0.16em] text-[color:var(--color-mist)]">
-        {label}
-      </dt>
-      <dd
-        className={cn(
-          'display mt-1 text-2xl font-black',
-          tone === 'pass' ? 'text-[#6ef2b0]' : tone === 'fail' ? 'text-[color:var(--color-ember-soft)]' : 'text-white',
-        )}
-      >
-        {value}
-      </dd>
-    </div>
-  );
-}
-
 /** Previous / next with the current range; renders nothing when everything fits on one page. */
 function Pagination({
   page,
@@ -1129,11 +1104,3 @@ function Pagination({
   );
 }
 
-function EmptyState({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="panel p-8 text-center">
-      <p className="display text-base font-bold text-white">{title}</p>
-      <p className="mx-auto mt-2 max-w-sm text-sm text-[color:var(--color-mist)]">{body}</p>
-    </div>
-  );
-}

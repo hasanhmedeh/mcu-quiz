@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { NameGate } from '@/components/quiz/NameGate';
 import { PageShell, SectionLabel } from '@/components/ui/primitives';
 import {
@@ -35,7 +36,13 @@ const FILMS = [
 
 export default function HomePage() {
   return (
-    <PageShell>
+    <PageShell
+      headerRight={
+        <Link href="/timeline" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
+          Road to Doomsday
+        </Link>
+      }
+    >
       <div className="grid gap-8 lg:grid-cols-[1.15fr_1fr] lg:items-start lg:gap-12">
         <section className="fade-up">
           <SectionLabel>Before you enter the Endgame…</SectionLabel>
@@ -109,6 +116,23 @@ export default function HomePage() {
             </li>
           ))}
         </ul>
+        <Link
+          href="/timeline"
+          className="panel mt-8 flex flex-col gap-3 p-5 transition-colors hover:border-[rgba(74,222,128,0.5)] sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>
+            <span className="display block text-sm font-bold tracking-[0.16em] text-white">
+              The road to Doomsday
+            </span>
+            <span className="mt-1 block text-sm text-[color:var(--color-mist)]">
+              Every Marvel film and series — MCU, X-Men, Sony, Daredevil and more — branch by
+              branch, in release order.
+            </span>
+          </span>
+          <span className="display shrink-0 text-xs tracking-[0.2em] text-[color:var(--color-doom)]">
+            Explore the timeline →
+          </span>
+        </Link>
       </section>
     </PageShell>
   );
