@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
-import { getAuth, type Auth } from 'firebase-admin/auth';
+import type { Auth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 
 /**
@@ -143,8 +143,16 @@ export function getDb(): Firestore {
   return db;
 }
 
-/** Admin Auth, for verifying the ID tokens the email-link sign-in produces. */
-export function getAdminAuth(): Auth {
+/**
+ * Admin Auth, for verifying the ID tokens the email-link sign-in produces.
+ *
+ * Loaded on demand rather than imported at the top: this module sits under
+ * nearly every route, and `firebase-admin/auth` pulls in a token library
+ * (jwks-rsa → jose) that only loads on Node ^20.19 / ^22.12 / >=23. Keeping it
+ * out of module load means only sign-in depends on it.
+ */
+export async function getAdminAuth(): Promise<Auth> {
+  const { getAuth } = await import('firebase-admin/auth');
   return getAuth(getAdminApp());
 }
 

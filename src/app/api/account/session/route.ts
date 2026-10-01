@@ -39,9 +39,12 @@ export async function POST(request: Request) {
       return fail('rate_limited', 'Too many sign-in attempts. Try again in a few minutes.', 429);
     }
 
+    // Outside the try below: if the auth library itself fails to load, that is
+    // a server fault for the log, not a bad link.
+    const auth = await getAdminAuth();
     let decoded;
     try {
-      decoded = await getAdminAuth().verifyIdToken(parsed.data.idToken, true);
+      decoded = await auth.verifyIdToken(parsed.data.idToken, true);
     } catch (error) {
       logServerError('account/session: rejected ID token', error);
       return fail('invalid_token', 'That sign-in link has expired or was already used.', 401);
