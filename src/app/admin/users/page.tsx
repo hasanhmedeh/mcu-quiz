@@ -1,10 +1,12 @@
 import { AccountsTable } from '@/components/admin/AccountsTable';
 import { AdminLogin } from '@/components/admin/AdminLogin';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { BarList } from '@/components/admin/BarList';
 import { StatCard } from '@/components/admin/parts';
+import { UsersTimeCharts } from '@/components/admin/UsersTimeCharts';
 import { Alert, PageShell, SectionLabel } from '@/components/ui/primitives';
 import { DEFAULT_FLOWS } from '@/data/timeline';
-import { listAccountsForAdmin, type AdminAccountRow } from '@/lib/admin/accounts';
+import { getUsersOverview, type UsersOverview } from '@/lib/admin/accounts';
 import { isAdminAuthenticated, isAdminConfigured } from '@/lib/auth/session';
 import { FirebaseConfigError } from '@/lib/firebase/admin';
 import { logServerError } from '@/lib/http';
@@ -16,16 +18,20 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 
-/** Everyone who signed up at /account, with their exams and activity a click away. */
+function percent(part: number, whole: number): string {
+  return whole === 0 ? '0%' : `${Math.round((part / whole) * 100)}%`;
+}
+
+/** Everyone who signed up at /account: analytics across all of them, then the list. */
 export default async function AdminUsersPage() {
   if (!(await isAdminAuthenticated())) {
     return <AdminLogin configured={isAdminConfigured()} />;
   }
 
-  let accounts: AdminAccountRow[] | null = null;
+  let overview: UsersOverview | null = null;
   let loadError: string | null = null;
   try {
-    accounts = await listAccountsForAdmin();
+    overview = await getUsersOverview();
   } catch (error) {
     const configIssue = error instanceof FirebaseConfigError;
     logServerError(configIssue ? 'admin users: firebase not configured' : 'admin users', error);
@@ -35,7 +41,6 @@ export default async function AdminUsersPage() {
   }
 
   const totalTitles = DEFAULT_FLOWS.reduce((sum, flow) => sum + flow.entries.length, 0);
-  const list = accounts ?? [];
 
   return (
     <PageShell headerRight={<AdminNav current="users" />}>
@@ -48,26 +53,96 @@ export default async function AdminUsersPage() {
         </p>
       </div>
 
-      {loadError ? (
+      {loadError || !overview ? (
         <Alert tone="error" className="mt-6">
           {loadError}
         </Alert>
       ) : (
-        <>
-          <dl className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard label="Accounts" value={String(list.length)} />
-            <StatCard
-              label="Active this week"
-              value={String(list.filter((account) => account.activeThisWeek).length)}
-            />
-            <StatCard label="Took the exam" value={String(list.filter((account) => account.examCount > 0).length)} />
-            <StatCard label="Passed" value={String(list.filter((account) => account.passed).length)} tone="pass" />
-          </dl>
-          <div className="mt-6">
-            <AccountsTable accounts={list} totalTitles={totalTitles} />
-          </div>
-        </>
+        <UsersBody overview={overview} totalTitles={totalTitles} />
       )}
     </PageShell>
+  );
+}
+
+function UsersBody({ overview, totalTitles }: { overview: UsersOverview; totalTitles: number }) {
+  const { accounts, analytics } = overview;
+  const signedUp = accounts.length;
+
+  return (
+    <>
+      <dl className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Accounts" value={String(signedUp)} />
+        <StatCard label="Active this week" value={String(accounts.filter((account) => account.activeThisWeek).length)} />
+        <StatCard label="Took the exam" value={String(accounts.filter((account) => account.examCount > 0).length)} />
+        <StatCard label="Passed" value={String(accounts.filter((account) => account.passed).length)} tone="pass" />
+      </dl>
+
+      {/* ---------------- Analytics ---------------- */}
+      <section className="mt-10" aria-labelledby="analytics-heading">
+        <h2 id="analytics-heading" className="display text-lg font-bold text-white">
+          Analytics
+        </h2>
+        <p className="mt-1 text-xs text-[color:var(--color-mist)]">
+          {analytics.capped
+            ? `Activity is based on a sample of ${analytics.analysed.toLocaleString()} events; there are more.`
+            : `Across everyone, from ${analytics.analysed.toLocaleString()} recorded events.`}
+        </p>
+
+        {signedUp === 0 ? (
+          <p className="mt-3 text-sm text-[color:var(--color-mist)]">Nothing to analyse until someone signs up.</p>
+        ) : (
+          <>
+            <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <StatCard label="Page views" value={analytics.counts.pageViews.toLocaleString()} />
+              <StatCard label="Trailers played" value={analytics.counts.trailers.toLocaleString()} />
+              <StatCard label="Titles marked" value={analytics.counts.marked.toLocaleString()} />
+              <StatCard
+                label="Left an exam"
+                value={analytics.counts.examExits.toLocaleString()}
+                tone={analytics.counts.examExits > 0 ? 'fail' : undefined}
+              />
+            </dl>
+
+            <div className="mt-4">
+              <UsersTimeCharts hourly={analytics.hourly} />
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <BarList
+                title="How far people get"
+                subtitle="Accounts that reached each step, and their share of sign-ups"
+                rows={analytics.funnel.map((step) => ({ ...step, note: percent(step.count, signedUp) }))}
+                empty="No accounts yet."
+              />
+              <BarList
+                title="Most active users"
+                subtitle="By events recorded; open one for their full history"
+                rows={analytics.mostActive}
+                empty="No activity yet."
+              />
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              <BarList title="Most visited pages" rows={analytics.topPages} empty="No page views yet." />
+              <BarList title="Most played trailers" rows={analytics.topTrailers} empty="No trailers played yet." />
+              <BarList
+                title="Most watched titles"
+                subtitle="Marked as watched, by number of people"
+                rows={analytics.topWatched}
+                empty="Nothing marked yet."
+              />
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* ---------------- Everyone ---------------- */}
+      <section className="mt-10" aria-labelledby="everyone-heading">
+        <h2 id="everyone-heading" className="display mb-4 text-lg font-bold text-white">
+          All users
+        </h2>
+        <AccountsTable accounts={accounts} totalTitles={totalTitles} />
+      </section>
+    </>
   );
 }

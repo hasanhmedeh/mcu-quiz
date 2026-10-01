@@ -675,6 +675,126 @@ button.trailer-link {
   opacity: 1;
 }
 
+/* Charts (admin user analytics). One series per chart, so one hue: the
+   reference dark-mode blue, validated against the panel surface. */
+.viz {
+  --viz-series: #3987e5;
+  --viz-series-hover: #5598e7;
+  --viz-grid: rgba(143, 208, 255, 0.12);
+}
+
+.viz-plot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 8rem;
+  border-bottom: 1px solid var(--viz-grid);
+}
+
+.viz-gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--viz-grid);
+  pointer-events: none;
+}
+
+.viz-gridlabel {
+  position: absolute;
+  left: 100%;
+  bottom: 0;
+  padding-left: 0.375rem;
+  transform: translateY(50%);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-mist);
+}
+
+.viz-col {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  height: 100%;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: center;
+  outline: none;
+}
+
+.viz-bar {
+  width: 100%;
+  max-width: 24px;
+  border-radius: 4px 4px 0 0;
+  background: var(--viz-series);
+  transition: background-color 120ms ease;
+}
+
+.viz-col:hover .viz-bar,
+.viz-col:focus-visible .viz-bar {
+  background: var(--viz-series-hover);
+}
+
+.viz-col:focus-visible {
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--color-ion-soft);
+}
+
+.viz-peak {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -4px);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.viz-tip {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 50%;
+  z-index: 10;
+  display: none;
+  transform: translateX(-50%);
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(143, 208, 255, 0.24);
+  background: rgba(9, 11, 26, 0.97);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.viz-col:hover .viz-tip,
+.viz-col:focus-visible .viz-tip {
+  display: block;
+}
+
+.viz-ticks {
+  display: flex;
+  gap: 2px;
+  margin-top: 0.375rem;
+  font-size: 0.625rem;
+  color: var(--color-mist);
+}
+
+.viz-ticks > span {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: visible;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* Horizontal bars: square at the baseline, rounded at the data end. */
+.viz-hbar {
+  height: 0.625rem;
+  border-radius: 0 4px 4px 0;
+  background: var(--viz-series);
+}
+
 .progress-track {
   height: 0.375rem;
   overflow: hidden;

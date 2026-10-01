@@ -1,13 +1,15 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AdminLogin } from '@/components/admin/AdminLogin';
+import { ActivityTimeCharts } from '@/components/admin/ActivityTimeCharts';
 import { AdminNav } from '@/components/admin/AdminNav';
+import { BarList } from '@/components/admin/BarList';
 import { CapturesButton } from '@/components/admin/CapturesButton';
-import { EmptyState, StatCard } from '@/components/admin/parts';
+import { EmptyState, LinkPagination, StatCard } from '@/components/admin/parts';
 import { LocalTime } from '@/components/ui/LocalTime';
 import { Alert, PageShell, SectionLabel } from '@/components/ui/primitives';
 import { yearLabel } from '@/data/timeline';
-import type { ActivityEntry } from '@/lib/account/activity';
+import { ACTIVITY_PAGE_SIZE, type ActivityEntry } from '@/lib/account/activity';
 import { activityLabel } from '@/lib/account/activityTypes';
 import { getAccountProfileForAdmin, type AdminAccountProfile } from '@/lib/admin/accounts';
 import { isAdminAuthenticated, isAdminConfigured } from '@/lib/auth/session';
@@ -25,6 +27,8 @@ export const metadata = {
 
 interface ProfilePageProps {
   params: Promise<{ uid: string }>;
+  /** `?page=N` pages through the activity log. */
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
 const EXIT_LABELS: Record<string, string> = {
@@ -36,15 +40,17 @@ const EXIT_LABELS: Record<string, string> = {
 };
 
 /** One account: their exams, what they watched, and their full activity log. */
-export default async function AdminUserProfilePage({ params }: ProfilePageProps) {
+export default async function AdminUserProfilePage({ params, searchParams }: ProfilePageProps) {
   if (!(await isAdminAuthenticated())) {
     return <AdminLogin configured={isAdminConfigured()} />;
   }
   const { uid } = await params;
+  const pageParam = (await searchParams).page;
+  const requestedPage = Number(Array.isArray(pageParam) ? pageParam[0] : pageParam) || 1;
 
   let profile: AdminAccountProfile | null;
   try {
-    profile = await getAccountProfileForAdmin(uid);
+    profile = await getAccountProfileForAdmin(uid, requestedPage);
   } catch (error) {
     const configIssue = error instanceof FirebaseConfigError;
     logServerError(configIssue ? 'admin profile: firebase not configured' : 'admin profile', error);
@@ -60,6 +66,7 @@ export default async function AdminUserProfilePage({ params }: ProfilePageProps)
   }
   if (!profile) notFound();
 
+  const { analytics } = profile;
   const completed = profile.exams.filter((exam) => exam.status === 'completed');
   const best = completed.reduce<number | null>((top, exam) => (exam.score === null ? top : Math.max(top ?? 0, exam.score)), null);
 
@@ -91,7 +98,7 @@ export default async function AdminUserProfilePage({ params }: ProfilePageProps)
           tone={best === null ? undefined : completed.some((exam) => exam.passed) ? 'pass' : 'fail'}
         />
         <StatCard label="Watched" value={String(profile.watched.length)} />
-        <StatCard label="Events logged" value={String(profile.activity.length)} />
+        <StatCard label="Events logged" value={String(profile.activity.total)} />
       </dl>
 
       {/* ---------------- Exams ---------------- */}
@@ -188,20 +195,60 @@ export default async function AdminUserProfilePage({ params }: ProfilePageProps)
         )}
       </section>
 
+      {/* ---------------- Analytics ---------------- */}
+      <section className="mt-10" aria-labelledby="analytics-heading">
+        <h2 id="analytics-heading" className="display text-lg font-bold text-white">
+          Activity analytics
+        </h2>
+        <p className="mt-1 text-xs text-[color:var(--color-mist)]">
+          {analytics.analysed < profile.activity.total
+            ? `Based on their latest ${analytics.analysed.toLocaleString()} of ${profile.activity.total.toLocaleString()} events.`
+            : 'Based on everything recorded while they were signed in.'}
+        </p>
+        {analytics.analysed === 0 ? (
+          <p className="mt-3 text-sm text-[color:var(--color-mist)]">Nothing to analyse yet.</p>
+        ) : (
+          <>
+            <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <StatCard label="Sign-ins" value={analytics.counts.signIns.toLocaleString()} />
+              <StatCard label="Page views" value={analytics.counts.pageViews.toLocaleString()} />
+              <StatCard label="Trailers played" value={analytics.counts.trailers.toLocaleString()} />
+              <StatCard label="Titles marked" value={analytics.counts.marked.toLocaleString()} />
+              <StatCard
+                label="Left the exam"
+                value={analytics.counts.examExits.toLocaleString()}
+                tone={analytics.counts.examExits > 0 ? 'fail' : undefined}
+              />
+            </dl>
+            <div className="mt-4">
+              <ActivityTimeCharts times={analytics.times} />
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              <BarList
+                title="What they did"
+                rows={analytics.byType.map((row) => ({ label: activityLabel(row.type), count: row.count }))}
+                empty="No events yet."
+              />
+              <BarList title="Most visited pages" rows={analytics.topPages} empty="No page views yet." />
+              <BarList title="Most played trailers" rows={analytics.topTrailers} empty="No trailers played yet." />
+            </div>
+          </>
+        )}
+      </section>
+
       {/* ---------------- Activity ---------------- */}
       <section className="mt-10" aria-labelledby="activity-heading">
         <h2 id="activity-heading" className="display text-lg font-bold text-white">
           Activity
         </h2>
         <p className="mt-1 text-xs text-[color:var(--color-mist)]">
-          Everything recorded while they were signed in, newest first
-          {profile.activity.length >= 300 ? ' (the latest 300 events)' : ''}.
+          Everything recorded while they were signed in, newest first.
         </p>
-        {profile.activity.length === 0 ? (
+        {profile.activity.total === 0 ? (
           <p className="mt-3 text-sm text-[color:var(--color-mist)]">No activity recorded yet.</p>
         ) : (
           <ol className="panel mt-4 divide-y divide-[rgba(143,208,255,0.08)]">
-            {profile.activity.map((event) => (
+            {profile.activity.entries.map((event) => (
               <li key={event.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-2.5 text-sm">
                 <LocalTime iso={event.at} className="w-40 shrink-0 text-xs tabular-nums text-[color:var(--color-mist)]" />
                 <span className={cn('font-semibold', EVENT_TONE[event.type] ?? 'text-white')}>{activityLabel(event.type)}</span>
@@ -210,6 +257,14 @@ export default async function AdminUserProfilePage({ params }: ProfilePageProps)
             ))}
           </ol>
         )}
+        <LinkPagination
+          page={profile.activity.page}
+          pageCount={profile.activity.pageCount}
+          total={profile.activity.total}
+          pageSize={ACTIVITY_PAGE_SIZE}
+          noun="event"
+          hrefFor={(page) => (page === 1 ? `/admin/users/${uid}` : `/admin/users/${uid}?page=${page}`)}
+        />
       </section>
     </PageShell>
   );
