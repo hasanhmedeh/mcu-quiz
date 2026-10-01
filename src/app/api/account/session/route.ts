@@ -3,7 +3,8 @@ import { logActivity } from '@/lib/account/activity';
 import { recordSignIn } from '@/lib/account/service';
 import { consumeRateLimit, rateLimitKey } from '@/lib/auth/rateLimit';
 import { clearAccountSessionCookie, readAccountSession, setAccountSessionCookie } from '@/lib/auth/session';
-import { FirebaseConfigError, getAdminAuth } from '@/lib/firebase/admin';
+import { IdTokenError, verifyFirebaseIdToken, type FirebaseIdToken } from '@/lib/auth/firebaseIdToken';
+import { FirebaseConfigError, getFirebaseProjectId } from '@/lib/firebase/admin';
 import { GENERIC_ERROR_MESSAGE, clientAddress, fail, logServerError, ok, readJsonBody } from '@/lib/http';
 
 export const runtime = 'nodejs';
@@ -39,20 +40,28 @@ export async function POST(request: Request) {
       return fail('rate_limited', 'Too many sign-in attempts. Try again in a few minutes.', 429);
     }
 
-    // Outside the try below: if the auth library itself fails to load, that is
-    // a server fault for the log, not a bad link.
-    const auth = await getAdminAuth();
-    let decoded;
+    // A refused token gets its own message, distinct from Firebase's own
+    // "link expired", so the screen shows which side said no. The reason
+    // goes to the server log. Failing to fetch Google's keys is a server fault
+    // and falls through to the 500 below.
+    let decoded: FirebaseIdToken;
     try {
-      decoded = await auth.verifyIdToken(parsed.data.idToken, true);
+      decoded = await verifyFirebaseIdToken(parsed.data.idToken, getFirebaseProjectId());
     } catch (error) {
+      if (!(error instanceof IdTokenError)) throw error;
       logServerError('account/session: rejected ID token', error);
-      return fail('invalid_token', 'That sign-in link has expired or was already used.', 401);
+      return fail('invalid_token', 'We could not confirm that sign-in. Please ask for a new link.', 401);
     }
 
-    const fresh = Date.now() / 1000 - decoded.auth_time < MAX_SIGN_IN_AGE_SECONDS;
-    if (!decoded.email || !decoded.email_verified || !fresh) {
-      return fail('invalid_token', 'That sign-in link has expired or was already used.', 401);
+    const age = Date.now() / 1000 - decoded.authTime;
+    if (!decoded.email || !decoded.emailVerified || age > MAX_SIGN_IN_AGE_SECONDS) {
+      logServerError(
+        'account/session: rejected ID token',
+        new IdTokenError(
+          !decoded.email ? 'no email' : !decoded.emailVerified ? 'email not verified' : `signed in ${Math.round(age)}s ago`,
+        ),
+      );
+      return fail('invalid_token', 'We could not confirm that sign-in. Please ask for a new link.', 401);
     }
 
     const email = decoded.email.toLowerCase();
