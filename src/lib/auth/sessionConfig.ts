@@ -10,6 +10,10 @@ export const QUIZ_COOKIE = 'mcu_attempt';
 export const ADMIN_COOKIE = 'mcu_admin';
 export const DEVICE_COOKIE = 'mcu_device';
 export const OWNER_COOKIE = 'mcu_owner';
+export const ACCOUNT_COOKIE = 'mcu_account';
+
+/** A viewer account (/account) stays signed in for a month. */
+export const ACCOUNT_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 /**
  * Which participants this browser has played as. It is what lets someone see

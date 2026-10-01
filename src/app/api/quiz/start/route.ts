@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { validateName } from '@/lib/quiz/names';
 import { startExam, type DeviceIdentity } from '@/lib/quiz/service';
+import { logActivity } from '@/lib/account/activity';
 import {
   addOwnedUserId,
+  readAccountSession,
   readDeviceCookie,
   readOwnedUserIds,
   setDeviceCookie,
@@ -94,12 +96,14 @@ export async function POST(request: Request) {
     const agent = userAgent(request);
     const device = await resolveDevice(parsed.data.device, agent);
 
+    const account = await readAccountSession();
     const outcome = await startExam({
       displayName: validation.displayName,
       normalizedName: validation.normalizedName,
       userAgent: agent,
       device,
       ownedUserIds: await readOwnedUserIds(),
+      account,
     });
 
     // Remember the device either way — including when it was just blocked, so
@@ -111,6 +115,12 @@ export async function POST(request: Request) {
       // their result page opens for them from now on.
       if (outcome.ownedByRequester) {
         await addOwnedUserId(userIdForNormalizedName(validation.normalizedName));
+      }
+      if (account) {
+        await logActivity(account.uid, 'exam_blocked', {
+          path: '/',
+          detail: { reason: outcome.reason, name: validation.displayName },
+        });
       }
 
       return ok(
@@ -133,6 +143,16 @@ export async function POST(request: Request) {
 
     await setQuizSessionCookie({ attemptId: outcome.attemptId, userId: outcome.userId });
     await addOwnedUserId(outcome.userId);
+    if (account) {
+      await logActivity(account.uid, outcome.resumed ? 'exam_resumed' : 'exam_started', {
+        path: '/quiz',
+        detail: {
+          attemptId: outcome.attemptId,
+          name: outcome.displayName,
+          attemptNumber: outcome.attemptNumber,
+        },
+      });
+    }
 
     return ok({
       status: 'started' as const,

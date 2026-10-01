@@ -14,6 +14,10 @@ import {
   type TimelineFlow,
   type TitleKind,
 } from '@/data/timeline';
+import { trailerIdFor, trailerSearchUrl } from '@/data/trailers';
+import { TrailerButton } from '@/components/timeline/TrailerButton';
+import { WatchToggle, WatchedProvider } from '@/components/account/Watched';
+import { getCurrentAccount } from '@/lib/account/service';
 
 // The organiser can reorder the timeline at any time from /admin/timeline.
 export const dynamic = 'force-dynamic';
@@ -88,44 +92,63 @@ export default async function TimelinePage() {
   const outer = flows.filter((flow) => flow.tier === 'outer');
   const mcu = flows.filter((flow) => flow.tier === 'mcu');
   const outerColumns = GRID_COLUMNS[outer.length] ?? 'lg:grid-cols-3';
+  const hasStars = flows.some((flow) => flow.entries.some((entry) => entry.important));
+  const account = await getCurrentAccount();
 
   return (
     <PageShell
       wide
       headerRight={
-        <Link href="/" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
-          Back to the exam
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
+            Back to the exam
+          </Link>
+          <Link href="/account" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
+            {account ? 'My account' : 'Sign in'}
+          </Link>
+        </div>
       }
     >
-      <div className={cn(logoFont.variable, mythFont.variable)}>
-        <section className="fade-up text-center">
-          <SectionLabel>The multiverse, mapped</SectionLabel>
-          <h1 className="display mt-4 text-4xl font-black leading-[1.05] text-white sm:text-5xl">
-            The road to{' '}
-            <span className="text-[color:var(--color-doom)] text-glow-doom">Doomsday</span>
-          </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-[color:var(--color-mist)] sm:text-lg">
-            Every Marvel film and series in release order. The universes that grew up outside the
-            MCU cross into it, and every line ends at <em>{DOOMSDAY.title}</em>.
-          </p>
-        </section>
+      <WatchedProvider signedIn={account !== null} initialWatched={Object.keys(account?.watched ?? {})}>
+        <div className={cn(logoFont.variable, mythFont.variable)}>
+          <section className="fade-up text-center">
+            <SectionLabel>The multiverse, mapped</SectionLabel>
+            <h1 className="display mt-4 text-4xl font-black leading-[1.05] text-white sm:text-5xl">
+              The road to{' '}
+              <span className="text-[color:var(--color-doom)] text-glow-doom">Doomsday</span>
+            </h1>
+            <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-[color:var(--color-mist)] sm:text-lg">
+              Every Marvel film and series in release order. The universes that grew up outside the
+              MCU cross into it, and every line ends at <em>{DOOMSDAY.title}</em>.
+            </p>
+            {hasStars ? <StarLegend /> : null}
+            {account ? null : (
+              <p className="mt-4 text-sm text-[color:var(--color-mist)]">
+                <Link href="/account" className="text-[color:var(--color-ion-soft)] underline">
+                  Sign in
+                </Link>{' '}
+                to tick off what you have watched and get suggestions for what to watch next.
+              </p>
+            )}
+          </section>
+          {hasStars ? <StarPopover /> : null}
 
-        {outer.length > 0 ? (
-          <>
-            <Tier label="Beyond the MCU" flows={outer} columns={outerColumns} />
-            <Converge count={outer.length} className={outerColumns} />
-          </>
-        ) : null}
+          {outer.length > 0 ? (
+            <>
+              <Tier label="Beyond the MCU" flows={outer} columns={outerColumns} />
+              <Converge count={outer.length} className={outerColumns} />
+            </>
+          ) : null}
 
-        {mcu.length > 0 ? (
-          <>
-            <Tier flows={mcu} columns="" />
-            <Converge count={1} className="lg:grid-cols-1" />
-          </>
-        ) : null}
-        <Finale />
-      </div>
+          {mcu.length > 0 ? (
+            <>
+              <Tier flows={mcu} columns="" />
+              <Converge count={1} className="lg:grid-cols-1" />
+            </>
+          ) : null}
+          <Finale />
+        </div>
+      </WatchedProvider>
     </PageShell>
   );
 }
@@ -249,18 +272,98 @@ function FlowLink({ axis, reversed = false, step }: { axis: 'x' | 'y'; reversed?
 function Logo({ entry }: { entry: TimelineEntry }) {
   const kind = KIND_LABEL[entry.kind];
   return (
-    <div className="logo-tile" aria-label={`${entry.title}, ${yearLabel(entry)}`} role="img">
-      {entry.logo ? (
-        <span className="relative block h-14 w-full">
-          <Image src={entry.logo} alt="" fill sizes="200px" className="object-contain" />
+    <div className={cn('logo-tile', entry.important && 'logo-tile-important')}>
+      <div className="logo-art" aria-label={`${entry.title}, ${yearLabel(entry)}`} role="img">
+        {entry.logo ? (
+          <span className="relative block h-14 w-full">
+            <Image src={entry.logo} alt="" fill sizes="200px" className="object-contain" />
+          </span>
+        ) : (
+          <Wordmark title={entry.title} mark={wordmarkFor(entry)} />
+        )}
+        <span className="logo-year">
+          {yearLabel(entry)}
+          {kind ? <span className="opacity-70"> · {kind}</span> : null}
         </span>
-      ) : (
-        <Wordmark title={entry.title} mark={wordmarkFor(entry)} />
-      )}
-      <span className="logo-year">
-        {yearLabel(entry)}
-        {kind ? <span className="opacity-70"> · {kind}</span> : null}
+      </div>
+      <span className="flex flex-wrap justify-center gap-1.5">
+        <TrailerLink entry={entry} />
+        <WatchToggle titleKey={entryKey(entry)} title={entry.title} />
       </span>
+      {entry.important ? (
+        <button
+          type="button"
+          popoverTarget={STAR_POPOVER_ID}
+          className="logo-star"
+          aria-label={`${entry.title} is starred. What does the star mean?`}
+        >
+          ★
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Plays the trailer in a popup; a title with no trailer on file links to a YouTube search instead. */
+function TrailerLink({ entry, className }: { entry: Pick<TimelineEntry, 'title' | 'year'>; className?: string }) {
+  const videoId = trailerIdFor(entry);
+  if (videoId) return <TrailerButton title={entry.title} videoId={videoId} className={className} />;
+  return (
+    <a
+      href={trailerSearchUrl(entry)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn('trailer-link', className)}
+      aria-label={`Watch the ${entry.title} trailer on YouTube (opens in a new tab)`}
+    >
+      <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="currentColor" aria-hidden="true">
+        <path d="M3 1.8v8.4L10 6z" />
+      </svg>
+      Trailer
+    </a>
+  );
+}
+
+/* ------------------------------------------------------------------
+   The star: titles the organiser marked important in /admin/timeline.
+   ------------------------------------------------------------------ */
+
+const STAR_POPOVER_ID = 'star-info';
+const STAR_MEANING = 'Starred titles were picked by the admin as must-watches on the road to Doomsday.';
+
+function StarLegend() {
+  return (
+    <p className="star-legend">
+      <span aria-hidden="true" className="star-legend-star">
+        ★
+      </span>
+      {STAR_MEANING}
+    </p>
+  );
+}
+
+/**
+ * One shared popup that every star opens. A native popover, so it needs no
+ * client code: clicking outside it or pressing Escape closes it.
+ */
+function StarPopover() {
+  return (
+    <div id={STAR_POPOVER_ID} popover="auto" className="star-popover" aria-labelledby="star-info-title">
+      <p id="star-info-title" className="flex items-center gap-2 font-semibold text-white">
+        <span aria-hidden="true" className="star-legend-star">
+          ★
+        </span>
+        What does the star mean?
+      </p>
+      <p className="mt-2 text-sm leading-relaxed text-[color:var(--color-mist)]">{STAR_MEANING}</p>
+      <button
+        type="button"
+        popoverTarget={STAR_POPOVER_ID}
+        popoverTargetAction="hide"
+        className="btn btn-ghost mt-4 min-h-0 w-full px-4 py-2 text-sm"
+      >
+        Got it
+      </button>
     </div>
   );
 }
@@ -359,6 +462,7 @@ function Finale() {
       <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-[color:var(--color-mist)] sm:text-base">
         {DOOMSDAY.summary}
       </p>
+      <TrailerLink entry={DOOMSDAY} className="mt-5" />
     </section>
   );
 }

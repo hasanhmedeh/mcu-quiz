@@ -153,6 +153,12 @@ export interface AttemptDocument {
   exits?: ExamExit[];
   /** Camera and screen stills stored for this attempt (in the `snapshots` collection). */
   snapshotCount?: number;
+  /**
+   * The viewer account (/account) that was signed in when the exam started,
+   * if any. Absent on attempts from before accounts existed.
+   */
+  accountId?: string | null;
+  accountEmail?: string | null;
 }
 
 export interface UserDocument {
@@ -220,6 +226,9 @@ export interface AdminAttemptRow {
   /** True when leaving too often is what submitted it. */
   forcedSubmit: boolean;
   snapshotCount: number;
+  /** The viewer account it is linked to, if they were signed in. */
+  accountId: string | null;
+  accountEmail: string | null;
 }
 
 export interface AdminUserRow {

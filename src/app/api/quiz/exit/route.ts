@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { QuizError, recordExamExit } from '@/lib/quiz/service';
-import { readQuizSession } from '@/lib/auth/session';
+import { logActivity } from '@/lib/account/activity';
+import { readAccountSession, readQuizSession } from '@/lib/auth/session';
 import { FirebaseConfigError } from '@/lib/firebase/admin';
 import { GENERIC_ERROR_MESSAGE, fail, logServerError, ok, readJsonBody } from '@/lib/http';
 
@@ -31,6 +32,18 @@ export async function POST(request: Request) {
       kind: parsed.data.kind,
       question: parsed.data.question,
     });
+    const account = await readAccountSession();
+    if (account) {
+      await logActivity(account.uid, 'exam_left', {
+        path: '/quiz',
+        detail: {
+          attemptId: session.attemptId,
+          kind: parsed.data.kind,
+          question: parsed.data.question,
+          exitCount: result.exitCount,
+        },
+      });
+    }
     return ok(result);
   } catch (error) {
     if (error instanceof QuizError) {

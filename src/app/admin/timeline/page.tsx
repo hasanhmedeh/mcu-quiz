@@ -1,8 +1,7 @@
 import { isAdminAuthenticated, isAdminConfigured } from '@/lib/auth/session';
 import { FirebaseConfigError } from '@/lib/firebase/admin';
 import { logServerError } from '@/lib/http';
-import { applyTimelineOrder } from '@/lib/timeline/order';
-import { readTimelineOrder, type SavedTimelineOrder } from '@/lib/timeline/service';
+import { flowsFromSaved, readTimelineOrder, type SavedTimelineOrder } from '@/lib/timeline/service';
 import { AdminLogin } from '@/components/admin/AdminLogin';
 import { TimelineEditor } from '@/components/admin/TimelineEditor';
 
@@ -19,7 +18,7 @@ export default async function AdminTimelinePage() {
     return <AdminLogin configured={isAdminConfigured()} />;
   }
 
-  let saved: SavedTimelineOrder = { order: null, updatedAt: null };
+  let saved: SavedTimelineOrder = { order: null, important: [], updatedAt: null };
   let loadError: string | null = null;
   try {
     saved = await readTimelineOrder();
@@ -33,7 +32,7 @@ export default async function AdminTimelinePage() {
 
   return (
     <TimelineEditor
-      initialFlows={applyTimelineOrder(saved.order)}
+      initialFlows={flowsFromSaved(saved)}
       initialUpdatedAt={saved.updatedAt}
       customised={saved.order !== null}
       loadError={loadError}

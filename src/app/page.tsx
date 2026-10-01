@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { NameGate } from '@/components/quiz/NameGate';
+import { readAccountSession } from '@/lib/auth/session';
 import { PageShell, SectionLabel } from '@/components/ui/primitives';
 import {
   ALLOWED_EXAM_EXITS,
@@ -34,13 +35,22 @@ const FILMS = [
   'Captain Marvel',
 ] as const;
 
-export default function HomePage() {
+// Reads the account cookie, to say whether the exam will be saved to an account.
+export const dynamic = 'force-dynamic';
+
+export default async function HomePage() {
+  const account = await readAccountSession();
   return (
     <PageShell
       headerRight={
-        <Link href="/timeline" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
-          Road to Doomsday
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/timeline" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
+            Road to Doomsday
+          </Link>
+          <Link href="/account" className="btn btn-ghost min-h-0 px-4 py-2 text-sm">
+            {account ? 'My account' : 'Sign in'}
+          </Link>
+        </div>
       }
     >
       <div className="grid gap-8 lg:grid-cols-[1.15fr_1fr] lg:items-start lg:gap-12">
@@ -99,6 +109,21 @@ export default function HomePage() {
           <h2 className="display text-lg font-bold text-white">Sign in to the exam</h2>
           <p className="mt-1.5 mb-6 text-sm text-[color:var(--color-mist)]">
             Use the name your friends know you by — it goes on the ticket.
+          </p>
+          <p className="mb-5 rounded-xl border border-[rgba(143,208,255,0.16)] bg-[rgba(13,16,36,0.6)] px-4 py-3 text-xs leading-relaxed text-[color:var(--color-mist)]">
+            {account ? (
+              <>
+                Signed in as <span className="text-white">{account.email}</span>. This exam will be
+                saved to your account, where you can see all your results.
+              </>
+            ) : (
+              <>
+                <Link href="/account" className="text-[color:var(--color-ion-soft)] underline">
+                  Sign in
+                </Link>{' '}
+                first to keep this exam and its result on your account.
+              </>
+            )}
           </p>
           <NameGate />
         </section>

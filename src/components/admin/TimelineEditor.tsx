@@ -55,13 +55,24 @@ function orderOf(flows: readonly TimelineFlow[]): Record<string, string[]> {
   return Object.fromEntries(flows.map((flow) => [flow.id, flow.entries.map(entryKey)]));
 }
 
+/** Keys of the titles marked important, as the API stores them. */
+function importantOf(flows: readonly TimelineFlow[]): string[] {
+  return flows.flatMap((flow) => flow.entries.filter((entry) => entry.important).map(entryKey));
+}
+
+/** Everything Save sends, for spotting unsaved changes. */
+function snapshotOf(flows: readonly TimelineFlow[]): string {
+  return JSON.stringify({ order: orderOf(flows), important: importantOf(flows) });
+}
+
 function formatSaved(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 /**
  * Reorder the public timeline: drag a title, or use its arrows, and switch
- * its branch from the Branch menu. Nothing changes on the page until Save.
+ * its branch from the Branch menu. The star marks a title important, which
+ * tags it on the page. Nothing changes on the page until Save.
  */
 export function TimelineEditor({
   initialFlows,
@@ -88,7 +99,7 @@ export function TimelineEditor({
   const [dropAt, setDropAt] = useState<number | null>(null);
 
   const dirty = useMemo(
-    () => JSON.stringify(orderOf(flows)) !== JSON.stringify(orderOf(savedFlows)),
+    () => snapshotOf(flows) !== snapshotOf(savedFlows),
     [flows, savedFlows],
   );
 
@@ -108,7 +119,7 @@ export function TimelineEditor({
       films: count('film'),
       series: count('series'),
       other: count('animated') + count('special'),
-      branches: flows.filter((flow) => flow.entries.length > 0).length,
+      important: all.filter((entry) => entry.important).length,
     };
   }, [flows]);
 
@@ -167,6 +178,19 @@ export function TimelineEditor({
     setNotice({ tone: 'info', text: `${item.title} moved to ${target?.name ?? 'another branch'}. Save to publish it.` });
   }
 
+  function toggleImportant(index: number) {
+    edit((previous) =>
+      previous.map((flow) =>
+        flow.id === activeId
+          ? {
+              ...flow,
+              entries: flow.entries.map((entry, i) => (i === index ? { ...entry, important: !entry.important } : entry)),
+            }
+          : flow,
+      ),
+    );
+  }
+
   /** Stable, so titles from the same year keep their current order. */
   function sortByYear() {
     edit((previous) =>
@@ -183,7 +207,7 @@ export function TimelineEditor({
       const response = await fetch('/api/admin/timeline', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: orderOf(flows) }),
+        body: JSON.stringify({ order: orderOf(flows), important: importantOf(flows) }),
       });
       const body = (await response.json().catch(() => null)) as
         | { updatedAt?: string; error?: { message?: string } }
@@ -195,7 +219,7 @@ export function TimelineEditor({
       setSavedFlows(flows);
       setUpdatedAt(body?.updatedAt ?? new Date().toISOString());
       setCustomised(true);
-      setNotice({ tone: 'info', text: 'Saved. The timeline page now shows this order.' });
+      setNotice({ tone: 'info', text: 'Saved. The timeline page now shows these changes.' });
     } catch {
       setNotice({ tone: 'error', text: 'We could not reach the server. Please try again.' });
     } finally {
@@ -276,6 +300,16 @@ export function TimelineEditor({
     <>
       <button
         type="button"
+        className={cn('order-button', row.entry.important && 'order-button-on')}
+        onClick={() => toggleImportant(row.index)}
+        aria-pressed={row.entry.important === true}
+        aria-label={`Star ${row.entry.title}`}
+        title={row.entry.important ? 'Starred. Click to remove the star.' : 'Star as a must-watch'}
+      >
+        {row.entry.important ? '★' : '☆'}
+      </button>
+      <button
+        type="button"
         className="order-button"
         onClick={() => move(row.index, row.index - 1)}
         disabled={row.index === 0}
@@ -323,7 +357,7 @@ export function TimelineEditor({
           onCancel={() => setConfirmReset(false)}
         >
           The saved order is deleted and every title goes back to its built-in branch and release
-          order. This cannot be undone.
+          order, with none marked important. This cannot be undone.
         </ConfirmDialog>
       ) : null}
 
@@ -337,8 +371,9 @@ export function TimelineEditor({
           <Link href="/timeline" target="_blank" className="text-[color:var(--color-ion-soft)] underline">
             timeline page
           </Link>
-          . Drag a title or use its arrows to reorder it; change its branch to move it. Nothing
-          changes on the page until you save.
+          . Drag a title or use its arrows to reorder it; change its branch to move it; use its
+          ☆ to star it as a must-watch, which the page explains to visitors. Nothing changes on
+          the page until you save.
         </p>
         <button
           type="button"
@@ -357,7 +392,7 @@ export function TimelineEditor({
         <StatCard label="Films" value={String(stats.films)} />
         <StatCard label="Series" value={String(stats.series)} />
         <StatCard label="Animated & specials" value={String(stats.other)} />
-        <StatCard label="Branches" value={String(stats.branches)} />
+        <StatCard label="Important" value={String(stats.important)} />
         <StatCard label="Order" value={customised ? 'Custom' : 'Built-in'} tone={customised ? 'pass' : undefined} />
       </dl>
 
@@ -408,7 +443,7 @@ export function TimelineEditor({
             onClick={() => void save()}
             disabled={!dirty || busy !== null}
           >
-            {busy === 'save' ? <Spinner label="Saving…" /> : 'Save order'}
+            {busy === 'save' ? <Spinner label="Saving…" /> : 'Save changes'}
           </button>
         </div>
       </div>
@@ -553,7 +588,12 @@ export function TimelineEditor({
                             <span className="tabular-nums text-[color:var(--color-mist)]">{row.index + 1}</span>
                           </span>
                         </td>
-                        <td className="px-4 py-2.5 font-semibold text-white">{row.entry.title}</td>
+                        <td className="px-4 py-2.5 font-semibold text-white">
+                          <span className="flex flex-wrap items-center gap-2">
+                            {row.entry.title}
+                            {row.entry.important ? <StarMark /> : null}
+                          </span>
+                        </td>
                         <td className="px-4 py-2.5 tabular-nums text-[color:var(--color-mist)]">
                           {yearLabel(row.entry)}
                         </td>
@@ -583,6 +623,7 @@ export function TimelineEditor({
                         <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[color:var(--color-mist)]">
                           {yearLabel(row.entry)}
                           <KindChip kind={row.entry.kind} />
+                          {row.entry.important ? <StarMark /> : null}
                         </p>
                       </div>
                     </div>
@@ -605,6 +646,15 @@ function KindChip({ kind }: { kind: TitleKind }) {
   return (
     <span className={cn('rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.08em]', KIND_CHIP[kind])}>
       {KIND_LABEL[kind]}
+    </span>
+  );
+}
+
+/** Decorative; the star button's pressed state carries the meaning. */
+function StarMark() {
+  return (
+    <span aria-hidden="true" title="Starred" className="text-[color:var(--color-gold)]">
+      ★
     </span>
   );
 }

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_FLOWS, entryKey, type FlowId } from '@/data/timeline';
-import { applyTimelineOrder, orderFromFlows, timelineOrderSchema } from '@/lib/timeline/order';
+import {
+  applyTimelineOrder,
+  importantFromFlows,
+  markImportant,
+  orderFromFlows,
+  timelineOrderSchema,
+} from '@/lib/timeline/order';
 
 function keysOf(flowId: FlowId, flows = applyTimelineOrder(null)): string[] {
   return flows.find((flow) => flow.id === flowId)?.entries.map(entryKey) ?? [];
@@ -78,6 +84,28 @@ describe('applyTimelineOrder', () => {
     const all = flows.flatMap((flow) => flow.entries.map(entryKey));
     expect(all).toHaveLength(total);
     expect(new Set(all).size).toBe(total);
+  });
+});
+
+describe('markImportant', () => {
+  it('flags only the listed titles, wherever they sit', () => {
+    const blade = legacyDefault[0] as string;
+    const first = mcuDefault[0] as string;
+    const flows = markImportant(applyTimelineOrder(null), [first, blade, 'not-a-real-title-1999']);
+    expect(importantFromFlows(flows).sort()).toEqual([blade, first].sort());
+  });
+
+  it('clears flags that are no longer listed', () => {
+    const first = mcuDefault[0] as string;
+    const flagged = markImportant(applyTimelineOrder(null), [first]);
+    const cleared = markImportant(flagged, []);
+    expect(importantFromFlows(cleared)).toEqual([]);
+    expect(cleared.flatMap((flow) => flow.entries).some((entry) => 'important' in entry)).toBe(false);
+  });
+
+  it('leaves the order untouched', () => {
+    const flows = markImportant(applyTimelineOrder(null), mcuDefault.slice(0, 3));
+    expect(orderFromFlows(flows)).toEqual(DEFAULT_ORDER);
   });
 });
 

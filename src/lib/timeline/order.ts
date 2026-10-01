@@ -16,6 +16,9 @@ const MAX_KEYS_PER_FLOW = 500;
 
 const keyList = z.array(z.string().min(1).max(160)).max(MAX_KEYS_PER_FLOW);
 
+/** Keys of the titles the organiser has marked important. */
+export const importantKeysSchema = keyList;
+
 export const timelineOrderSchema = z
   .object({
     xmen: keyList.optional(),
@@ -71,4 +74,25 @@ export function applyTimelineOrder(
 /** The order currently shown by a set of flows, ready to save. */
 export function orderFromFlows(flows: readonly TimelineFlow[]): TimelineOrder {
   return Object.fromEntries(flows.map((flow) => [flow.id, flow.entries.map(entryKey)]));
+}
+
+/**
+ * Flags the titles whose keys are listed as important, and clears the flag on
+ * every other one. Keys that no longer match a title are ignored.
+ */
+export function markImportant(flows: readonly TimelineFlow[], keys: readonly string[]): TimelineFlow[] {
+  const wanted = new Set(keys);
+  return flows.map((flow) => ({
+    ...flow,
+    entries: flow.entries.map((entry) => {
+      const plain = { ...entry };
+      delete plain.important;
+      return wanted.has(entryKey(entry)) ? { ...plain, important: true } : plain;
+    }),
+  }));
+}
+
+/** Keys of the titles flagged important, in display order, ready to save. */
+export function importantFromFlows(flows: readonly TimelineFlow[]): string[] {
+  return flows.flatMap((flow) => flow.entries.filter((entry) => entry.important).map(entryKey));
 }

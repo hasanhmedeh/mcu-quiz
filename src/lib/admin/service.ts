@@ -36,7 +36,7 @@ export interface AdminDashboardData {
 }
 
 /** Drops the per-question records; the dashboard never displays them. */
-function toRow(id: string, data: AttemptDocument): AdminAttemptRow {
+export function toRow(id: string, data: AttemptDocument): AdminAttemptRow {
   return {
     id,
     userId: data.userId,
@@ -53,6 +53,8 @@ function toRow(id: string, data: AttemptDocument): AdminAttemptRow {
     exitCount: data.exits?.length ?? 0,
     forcedSubmit: (data.exits?.length ?? 0) > ALLOWED_EXAM_EXITS,
     snapshotCount: data.snapshotCount ?? 0,
+    accountId: data.accountId ?? null,
+    accountEmail: data.accountEmail ?? null,
   };
 }
 

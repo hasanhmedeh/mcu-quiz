@@ -94,18 +94,22 @@ export interface AttemptViewer {
   /** Every device id this browser is known by. */
   readonly deviceIds: readonly string[];
   readonly isAdmin?: boolean;
+  /** The signed-in viewer account, if any (see /account). */
+  readonly accountId?: string | null;
 }
 
 /**
  * An attempt belongs to the browser that took it: the one holding the owner
  * cookie for that participant, or — for anyone who played before that cookie
- * existed — the device it was taken on.
+ * existed — the device it was taken on. An attempt taken while signed in also
+ * belongs to that account, on any device.
  */
 export function isAttemptOwner(
-  attempt: Pick<AttemptDocument, 'userId' | 'deviceId'>,
+  attempt: Pick<AttemptDocument, 'userId' | 'deviceId' | 'accountId'>,
   viewer: AttemptViewer,
 ): boolean {
   if (viewer.isAdmin) return true;
+  if (viewer.accountId && attempt.accountId === viewer.accountId) return true;
   if (viewer.ownedUserIds.includes(attempt.userId)) return true;
   return attempt.deviceId !== null && viewer.deviceIds.includes(attempt.deviceId);
 }
@@ -189,6 +193,8 @@ export interface StartExamInput {
   readonly device: DeviceIdentity | null;
   /** Participants this browser has already played as (the owner cookie). */
   readonly ownedUserIds?: readonly string[];
+  /** The signed-in viewer account, which the attempt is then linked to. */
+  readonly account?: { readonly uid: string; readonly email: string } | null;
 }
 
 /**
@@ -233,7 +239,11 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
       deviceRecords.push({ ref, data: (await transaction.get(ref)).data() });
     }
 
-    const viewer: AttemptViewer = { ownedUserIds: input.ownedUserIds ?? [], deviceIds };
+    const viewer: AttemptViewer = {
+      ownedUserIds: input.ownedUserIds ?? [],
+      deviceIds,
+      accountId: input.account?.uid ?? null,
+    };
 
     // --- Resume an exam that is still open ------------------------------
     if (existing?.activeAttemptId && existing.activeAttemptExpiresAt) {
@@ -265,6 +275,13 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
         if (active && active.status === 'in_progress') {
           const questions = toClientQuestions(active.questions);
           if (questions && questions.length === active.totalQuestions) {
+            // Signed in since starting it: link it now, so it shows on their account.
+            if (input.account && !active.accountId) {
+              transaction.update(activeRef, {
+                accountId: input.account.uid,
+                accountEmail: input.account.email,
+              });
+            }
             return {
               kind: 'started',
               attemptId: activeSnapshot.id,
@@ -361,6 +378,8 @@ export async function startExam(input: StartExamInput): Promise<StartExamOutcome
       completedAt: null,
       userAgent: input.userAgent,
       deviceId: input.device?.primaryId ?? null,
+      accountId: input.account?.uid ?? null,
+      accountEmail: input.account?.email ?? null,
     };
 
     transaction.set(attemptRef, attemptDocument);

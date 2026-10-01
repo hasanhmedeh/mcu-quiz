@@ -1,11 +1,13 @@
 import 'server-only';
 
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
+import { getAuth, type Auth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 
 /**
- * Firebase Admin is the *only* way this app touches Firestore. There is no
- * client-side Firebase SDK anywhere in the bundle, which is what lets the
+ * Firebase Admin is the *only* way this app touches Firestore. The browser
+ * bundle carries Firebase Auth alone (for email-link sign-in, see
+ * src/lib/firebase/client.ts) and never Firestore, which is what lets the
  * Firestore rules deny every direct browser read and write (see
  * firestore.rules) while the server keeps full access via the service account.
  */
@@ -139,6 +141,11 @@ export function getDb(): Firestore {
 
   globals[DB_CACHE_KEY] = db;
   return db;
+}
+
+/** Admin Auth, for verifying the ID tokens the email-link sign-in produces. */
+export function getAdminAuth(): Auth {
+  return getAuth(getAdminApp());
 }
 
 /** Cheap check used by the health endpoint and by friendlier error screens. */

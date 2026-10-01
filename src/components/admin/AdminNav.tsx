@@ -4,13 +4,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/cn';
 
-export type AdminSection = 'dashboard' | 'live' | 'gallery' | 'timeline';
+export type AdminSection = 'dashboard' | 'users' | 'live' | 'gallery' | 'timeline';
 
 /** State of the live feed, shown on the Live view button while on that page. */
 export type LiveConnection = 'connecting' | 'live' | 'reconnecting' | 'failed';
 
 const LINKS: ReadonlyArray<{ id: AdminSection; href: string; label: string }> = [
   { id: 'dashboard', href: '/admin', label: 'Dashboard' },
+  { id: 'users', href: '/admin/users', label: 'Users' },
   { id: 'live', href: '/admin/live', label: 'Live view' },
   { id: 'gallery', href: '/admin/gallery', label: 'Gallery' },
   { id: 'timeline', href: '/admin/timeline', label: 'Timeline' },
@@ -24,8 +25,8 @@ const LIVE_STATUS_LABEL: Record<LiveConnection, string> = {
 };
 
 /**
- * The same menu on every organiser page: Dashboard · Live view · Gallery ·
- * Timeline · Sign out. The page you are on is the red button — except the live view,
+ * The same menu on every organiser page: Dashboard · Users · Live view ·
+ * Gallery · Timeline · Sign out. The page you are on is the red button — except the live view,
  * whose button turns green while its feed is connected.
  */
 export function AdminNav({

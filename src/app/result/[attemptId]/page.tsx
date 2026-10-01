@@ -1,7 +1,12 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getAttemptResultFor, type ViewableAttempt } from '@/lib/quiz/service';
-import { isAdminAuthenticated, readDeviceCookie, readOwnedUserIds } from '@/lib/auth/session';
+import {
+  isAdminAuthenticated,
+  readAccountSession,
+  readDeviceCookie,
+  readOwnedUserIds,
+} from '@/lib/auth/session';
 import { renderQrDataUrl } from '@/lib/quiz/qr';
 import { getSiteOrigin } from '@/lib/siteUrl';
 import { FirebaseConfigError } from '@/lib/firebase/admin';
@@ -31,6 +36,7 @@ export default async function ResultPage({ params }: ResultPageProps) {
       ownedUserIds: await readOwnedUserIds(),
       deviceIds: deviceId ? [deviceId] : [],
       isAdmin: await isAdminAuthenticated(),
+      accountId: (await readAccountSession())?.uid ?? null,
     });
   } catch (error) {
     if (error instanceof FirebaseConfigError) {
@@ -263,9 +269,9 @@ function ResultPrivate() {
         <SectionLabel>Private</SectionLabel>
         <h1 className="display mt-3 text-2xl font-black text-white">This result is private</h1>
         <p className="mt-3 text-sm leading-relaxed text-[color:var(--color-mist)]">
-          A result can only be opened on the phone or laptop the exam was taken on. If this is
-          yours, open the link there. Anyone checking a ticket can use the verification page
-          instead.
+          A result can only be opened on the phone or laptop the exam was taken on, or by the
+          account that was signed in when it started. If this is yours, open the link there or
+          sign in. Anyone checking a ticket can use the verification page instead.
         </p>
         <Link href="/verify" className="btn btn-ghost mt-6 w-full">
           Verify a ticket

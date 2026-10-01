@@ -32,6 +32,12 @@ export interface TimelineEntry {
   wordmark?: Wordmark;
   /** Optional logo image (e.g. `/logos/iron-man.png` in `public/`), shown instead of the wordmark. */
   logo?: string;
+  /**
+   * Flagged by the organiser from /admin/timeline as one not to skip. Never
+   * set in this file: it is stored with the saved order and laid over by
+   * `markImportant` (src/lib/timeline/order.ts).
+   */
+  important?: boolean;
 }
 
 export type FlowId = 'xmen' | 'sony' | 'legacy' | 'mcu';

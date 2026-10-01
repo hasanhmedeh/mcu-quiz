@@ -20,11 +20,42 @@ export const COLLECTIONS = {
   devices: 'devices',
   snapshots: 'snapshots',
   settings: 'settings',
+  accounts: 'accounts',
 } as const;
+
+/**
+ * A viewer who signed in with an email link, keyed by their Firebase Auth
+ * uid. Separate from `users`, which are exam participants identified by name.
+ */
+export interface AccountDocument {
+  uid: string;
+  email: string;
+  createdAt: string;
+  lastSignInAt: string;
+  /** Timeline titles they have watched: `entryKey` → when they ticked it. */
+  watched: Record<string, string>;
+  /** Their latest recorded activity. Absent until they do something after signing in. */
+  lastActiveAt?: string;
+}
+
+/**
+ * accounts/{uid}/activity — one document per thing a signed-in viewer did.
+ * A subcollection, so a profile's history is one indexed `orderBy('at')`.
+ */
+export interface ActivityDocument {
+  type: string;
+  at: string;
+  /** The page it happened on, when there is one. */
+  path: string | null;
+  /** Small, flat facts about the event (a title, a score, an attempt id). */
+  detail: Record<string, string | number | boolean | null>;
+}
 
 /** settings/timeline — the organiser's order for the /timeline page. */
 export interface TimelineOrderDocument {
   flows: TimelineOrder;
+  /** Keys of the titles marked important. Missing on orders saved before the flag existed. */
+  important?: string[];
   updatedAt: string;
 }
 
@@ -89,6 +120,18 @@ export function snapshotsCollection(): CollectionReference<SnapshotDocument> {
 
 export function devicesCollection(): CollectionReference<DeviceDocument> {
   return getDb().collection(COLLECTIONS.devices).withConverter(converter<DeviceDocument>());
+}
+
+export function accountsCollection(): CollectionReference<AccountDocument> {
+  return getDb().collection(COLLECTIONS.accounts).withConverter(converter<AccountDocument>());
+}
+
+export function accountActivityCollection(uid: string): CollectionReference<ActivityDocument> {
+  return getDb()
+    .collection(COLLECTIONS.accounts)
+    .doc(uid)
+    .collection('activity')
+    .withConverter(converter<ActivityDocument>());
 }
 
 export function timelineOrderDoc(): DocumentReference<TimelineOrderDocument> {

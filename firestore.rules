@@ -25,6 +25,8 @@ service cloud.firestore {
     // devices      — one-attempt-per-device records (digest only, no raw signals)
     // rateLimits   — fixed-window counters for the login and start endpoints
     // settings     — organiser settings, e.g. the /timeline page order
+    // accounts     — viewer accounts (email-link sign-in) and their watched titles,
+    //                and accounts/{uid}/activity, everything they did while signed in
     //
     // None of these are client-accessible.
     match /{document=**} {

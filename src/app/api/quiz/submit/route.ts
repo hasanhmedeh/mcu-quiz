@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { QuizError, submitExam } from '@/lib/quiz/service';
-import { clearQuizSessionCookie, readQuizSession } from '@/lib/auth/session';
+import { logActivity } from '@/lib/account/activity';
+import { clearQuizSessionCookie, readAccountSession, readQuizSession } from '@/lib/auth/session';
 import { FirebaseConfigError } from '@/lib/firebase/admin';
 import { GENERIC_ERROR_MESSAGE, fail, logServerError, ok, readJsonBody } from '@/lib/http';
 import { TOTAL_QUESTIONS } from '@/types';
@@ -53,6 +54,19 @@ export async function POST(request: Request) {
     });
 
     await clearQuizSessionCookie();
+    const account = await readAccountSession();
+    if (account) {
+      await logActivity(account.uid, 'exam_submitted', {
+        path: '/quiz',
+        detail: {
+          attemptId: result.attemptId,
+          score: result.score,
+          totalQuestions: result.totalQuestions,
+          passed: result.passed,
+          ticketId: result.ticketId,
+        },
+      });
+    }
     return ok({ status: 'completed' as const, result });
   } catch (error) {
     if (error instanceof QuizError) {

@@ -1,5 +1,6 @@
 import { QuizError, discardExam } from '@/lib/quiz/service';
-import { clearQuizSessionCookie, readQuizSession } from '@/lib/auth/session';
+import { logActivity } from '@/lib/account/activity';
+import { clearQuizSessionCookie, readAccountSession, readQuizSession } from '@/lib/auth/session';
 import { FirebaseConfigError } from '@/lib/firebase/admin';
 import { GENERIC_ERROR_MESSAGE, fail, logServerError, ok } from '@/lib/http';
 
@@ -18,6 +19,13 @@ export async function POST() {
     // The organiser can remove them from the gallery.
     await discardExam({ attemptId: session.attemptId, userId: session.userId });
     await clearQuizSessionCookie();
+    const account = await readAccountSession();
+    if (account) {
+      await logActivity(account.uid, 'exam_discarded', {
+        path: '/quiz',
+        detail: { attemptId: session.attemptId },
+      });
+    }
     return ok({ status: 'discarded' as const });
   } catch (error) {
     if (error instanceof QuizError) {

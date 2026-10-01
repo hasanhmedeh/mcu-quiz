@@ -3,6 +3,8 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { createToken, safeEquals, verifyToken } from './tokens';
 import {
+  ACCOUNT_COOKIE,
+  ACCOUNT_SESSION_TTL_SECONDS,
   ADMIN_COOKIE,
   ADMIN_SESSION_TTL_SECONDS,
   DEVICE_COOKIE,
@@ -148,4 +150,36 @@ export async function isAdminAuthenticated(): Promise<boolean> {
   const store = await cookies();
   const payload = verifyToken(store.get(ADMIN_COOKIE)?.value);
   return payload?.kind === 'admin';
+}
+
+/** A viewer signed in with an email link (see /account). */
+export interface AccountSession {
+  /** Firebase Auth uid, which is also the id of their `accounts` document. */
+  readonly uid: string;
+  readonly email: string;
+}
+
+/**
+ * Set once the server has verified a fresh Firebase ID token. From then on the
+ * app only trusts this signed cookie; the browser keeps no Firebase session.
+ */
+export async function setAccountSessionCookie(session: AccountSession): Promise<void> {
+  const store = await cookies();
+  store.set(ACCOUNT_COOKIE, createToken({ kind: 'account', ...session }, ACCOUNT_SESSION_TTL_SECONDS), {
+    ...baseCookieOptions,
+    maxAge: ACCOUNT_SESSION_TTL_SECONDS,
+  });
+}
+
+export async function readAccountSession(): Promise<AccountSession | null> {
+  const store = await cookies();
+  const payload = verifyToken(store.get(ACCOUNT_COOKIE)?.value);
+  if (!payload || payload.kind !== 'account') return null;
+  if (typeof payload.uid !== 'string' || typeof payload.email !== 'string') return null;
+  return { uid: payload.uid, email: payload.email };
+}
+
+export async function clearAccountSessionCookie(): Promise<void> {
+  const store = await cookies();
+  store.set(ACCOUNT_COOKIE, '', { ...baseCookieOptions, maxAge: 0 });
 }

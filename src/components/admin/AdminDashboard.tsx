@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AdminNav } from './AdminNav';
 import { EmptyState, StatCard } from './parts';
@@ -835,7 +836,18 @@ function AttemptHistory({
                   attempt.id === latestId && 'bg-[rgba(62,166,255,0.06)]',
                 )}
               >
-                <td className="py-2 pr-4 font-semibold text-white">#{attempt.attemptNumber}</td>
+                <td className="py-2 pr-4">
+                  <span className="font-semibold text-white">#{attempt.attemptNumber}</span>
+                  {attempt.accountId ? (
+                    <Link
+                      href={`/admin/users/${attempt.accountId}`}
+                      className="block max-w-[12rem] truncate text-[0.65rem] text-[color:var(--color-ion-soft)] underline"
+                      title={`Taken while signed in as ${attempt.accountEmail ?? 'an account'}`}
+                    >
+                      {attempt.accountEmail ?? 'Linked account'}
+                    </Link>
+                  ) : null}
+                </td>
                 <td className="py-2 pr-4 text-[color:var(--color-mist)]">
                   {attempt.score === null ? '—' : `${attempt.score} / ${attempt.totalQuestions ?? totalQuestions}`}
                 </td>

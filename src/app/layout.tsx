@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Orbitron } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
+import { ActivityTracker } from '@/components/account/ActivityTracker';
 import './globals.css';
 
 const bodyFont = Inter({
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="starfield" aria-hidden="true" />
         <div className="relative z-10 flex min-h-dvh flex-col">{children}</div>
         <Analytics />
+        <ActivityTracker />
       </body>
     </html>
   );

@@ -869,3 +869,76 @@ describe('live answers', () => {
     expect(buildLiveAttempts([{ id: done.attemptId, data }], Date.now() + 2 * 60 * 60 * 1000)).toEqual([]);
   });
 });
+
+describe('exams linked to a signed-in account', () => {
+  const alice = { uid: 'account-alice', email: 'alice@example.com' };
+  const bob = { uid: 'account-bob', email: 'bob@example.com' };
+
+  /** A browser that has never played as this name: only the account can vouch for it. */
+  function startSignedIn(name: string, account: { uid: string; email: string } | null) {
+    return startExam({
+      displayName: name,
+      normalizedName: name.toLowerCase(),
+      userAgent: 'vitest',
+      device: null,
+      ownedUserIds: [],
+      account,
+    });
+  }
+
+  it('records the account on a new attempt', async () => {
+    const outcome = (await startSignedIn('Alice', alice)) as StartedLike;
+    expect(fakeDb().read(`attempts/${outcome.attemptId}`)).toMatchObject({
+      accountId: alice.uid,
+      accountEmail: alice.email,
+    });
+  });
+
+  it('leaves the link empty when nobody is signed in', async () => {
+    const outcome = (await start('Hasan', 'hasan')) as StartedLike;
+    expect(fakeDb().read(`attempts/${outcome.attemptId}`)).toMatchObject({ accountId: null });
+  });
+
+  it('lets the same account resume the exam from another device', async () => {
+    const first = (await startSignedIn('Alice', alice)) as StartedLike;
+    const again = (await startSignedIn('Alice', alice)) as StartedLike;
+    expect(again).toMatchObject({ kind: 'started', resumed: true, attemptId: first.attemptId });
+  });
+
+  it('still turns away a different account using the same name', async () => {
+    await startSignedIn('Alice', alice);
+    expect(await startSignedIn('Alice', bob)).toMatchObject({ kind: 'blocked', reason: 'in_use' });
+  });
+
+  it('links an unlinked exam when its owner resumes it signed in', async () => {
+    const first = (await start('Hasan', 'hasan')) as StartedLike;
+    await startExam({
+      displayName: 'Hasan',
+      normalizedName: 'hasan',
+      userAgent: 'vitest',
+      device: null,
+      ownedUserIds: [userIdForNormalizedName('hasan')],
+      account: alice,
+    });
+    expect(fakeDb().read(`attempts/${first.attemptId}`)).toMatchObject({ accountId: alice.uid });
+  });
+
+  it('opens the result for the linked account only', async () => {
+    const { getAttemptResultFor } = await import('@/lib/quiz/service');
+    const outcome = (await startSignedIn('Alice', alice)) as StartedLike;
+    await submitExam({
+      attemptId: outcome.attemptId,
+      userId: outcome.userId,
+      answers: answerSheet(outcome.attemptId, 30),
+    });
+
+    const viewer = { ownedUserIds: [], deviceIds: [] };
+    expect(await getAttemptResultFor(outcome.attemptId, { ...viewer, accountId: alice.uid })).toMatchObject({
+      status: 'ok',
+    });
+    expect(await getAttemptResultFor(outcome.attemptId, { ...viewer, accountId: bob.uid })).toEqual({
+      status: 'forbidden',
+    });
+    expect(await getAttemptResultFor(outcome.attemptId, viewer)).toEqual({ status: 'forbidden' });
+  });
+});
